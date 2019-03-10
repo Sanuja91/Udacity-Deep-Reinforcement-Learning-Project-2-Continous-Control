@@ -68,7 +68,7 @@ class Actor_Crtic_Agent():
             experiences = self.memory.sample()
             self.learn(experiences)
 
-    def act(self, state, add_noise=True):
+    def act(self, state, add_noise = True):
         """Returns actions for given state as per current policy."""
         state = torch.from_numpy(state).float().to(self.device)
         self.actor_local.eval()
@@ -76,7 +76,7 @@ class Actor_Crtic_Agent():
             action = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()        
         if add_noise:
-            noise = self.noise.sample().squeeze(0)
+            noise = self.noise.sample()
             action += noise
         return np.clip(action, -1, 1)
 

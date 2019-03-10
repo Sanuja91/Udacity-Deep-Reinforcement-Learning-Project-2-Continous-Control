@@ -7,10 +7,11 @@ def initialize_env():
 
     """Resetting environment"""
     brain_name = env.brain_names[0]
+    print("############## BRAIN NAMES", env.brain_names[0])
     brain = env.brains[brain_name]
 
     # reset the environment
-    env_info = env.reset(train_mode=True)[brain_name]
+    env_info = env.reset(train_mode = True)[brain_name]
 
     # number of agents in the environment
     print('Number of agents:', len(env_info.agents))
@@ -20,12 +21,14 @@ def initialize_env():
     print('Number of actions:', action_size)
 
     # examine the state space 
-    state = env_info.vector_observations[0]
-    print('States look like:', state)
-    state_size = len(state)
-    print('States have length:', state_size)
+    states = env_info.vector_observations
+    # print('States look like:', states[0])
+    state_size = len(states[0])
 
-    return env, env_info, state, state_size, action_size, brain_name
+    print('States have length:', state_size)
+    print('States initialized:', len(states))
+
+    return env, env_info, states, state_size, action_size, brain_name
 
 # Checks if GPU is available else runs on CPU
 def get_device():
