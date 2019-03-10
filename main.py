@@ -13,6 +13,7 @@ env_info = env.reset(train_mode = True)[brain_name]     # reset the environment
 states = env_info.vector_observations                  # get the current state (for each agent)
 scores = np.zeros(num_agents)                          # initialize the score (for each agent)
 
-agent = Actor_Crtic_Agent(brain_name, get_device(), state_size, num_agents, action_size, load_agent = False)
+agent_id = 1
+agent = Actor_Crtic_Agent(brain_name, agent_id, get_device(), state_size, action_size, load_agent = False)
 interact(agent, env, brain_name, n_episodes = 2000, eps_start = 1.0, eps_end = 0.01, eps_decay = 0.995)
 

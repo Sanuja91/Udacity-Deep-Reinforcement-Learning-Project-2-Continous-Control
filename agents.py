@@ -20,15 +20,15 @@ BATCH_SIZE = 128
 RANDOM_SEED = 4 
 
 class Actor_Crtic_Agent():        
-    def __init__(self, name, device, state_size, n_agents, action_size, load_agent = False):        
+    def __init__(self, name, id, device, state_size, action_size, load_agent = False):        
 
         self.device = device
 
         self.state_size = state_size
-        self.n_agents = n_agents
         self.action_size = action_size
         self.seed = random.seed(RANDOM_SEED)
         self.name = name
+        self.id = id
 
         # Hyperparameters
         self.buffer_size = BUFFER_SIZE
@@ -53,7 +53,7 @@ class Actor_Crtic_Agent():
             self.load_agent(self.name)
 
         # Noise process
-        self.noise = OUNoise((n_agents, action_size), RANDOM_SEED)
+        self.noise = OUNoise(action_size, RANDOM_SEED)
 
         # Replay memory
         self.memory = ReplayBuffer(device, action_size, self.buffer_size, self.batch_size, RANDOM_SEED)
@@ -61,8 +61,7 @@ class Actor_Crtic_Agent():
     def step(self, state, action, reward, next_state, done):
         """Save experience in replay memory, and use random sample from buffer to learn."""
         # Save experience / reward
-        for i in range(self.n_agents):
-            self.memory.add(state, action, reward, next_state, done)
+        self.memory.add(state, action, reward, next_state, done)
 
         # Learn, if enough samples are available in memory        
         if len(self.memory) > self.batch_size:
@@ -172,10 +171,9 @@ class OUNoise:
 
     def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2):
         """Initialize parameters and noise process."""
-        self.size = size        
         self.mu = mu * np.ones(size)
         self.theta = theta
-        self.sigma = sigma        
+        self.sigma = sigma
         self.seed = random.seed(seed)
         self.reset()
 
@@ -185,8 +183,8 @@ class OUNoise:
 
     def sample(self):
         """Update internal state and return it as a noise sample."""
-        x = self.state        
-        dx = self.theta * (self.mu - x) + self.sigma * np.random.standard_normal(self.size)
+        x = self.state
+        dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
         self.state = x + dx
         return self.state
 
