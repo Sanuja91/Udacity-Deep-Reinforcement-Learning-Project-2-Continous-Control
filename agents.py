@@ -62,7 +62,7 @@ class Actor_Crtic_Agent():
         """Save experience in replay memory, and use random sample from buffer to learn."""
         # Save experience / reward
         for i in range(self.n_agents):
-            self.memory.add(state[i,:], action[i,:], reward[i], next_state[i,:], done[i])
+            self.memory.add(state, action, reward, next_state, done)
 
         # Learn, if enough samples are available in memory        
         if len(self.memory) > self.batch_size:
@@ -77,7 +77,8 @@ class Actor_Crtic_Agent():
             action = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()        
         if add_noise:
-            action += self.noise.sample()
+            noise = self.noise.sample().squeeze(0)
+            action += noise
         return np.clip(action, -1, 1)
 
     def reset(self):
