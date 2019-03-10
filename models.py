@@ -1,4 +1,3 @@
-""" Contains a variety of neural network architectures to use on the problem"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,70 +7,82 @@ from torch.autograd import Variable
 
 import numpy as np
 
+# Initializing the weights of the neural network in an optimal way for the learning
 def init_weights(m):
-    if isinstance(m, nn.Linear):
-        nn.init.normal_(m.weight, mean=0., std=0.1)
-        nn.init.constant_(m.bias, 0.1)
+    classname = m.__class__.__name__ # python trick that will look for the type of connection in the object "m" (convolution or full connection)
+    if classname.find('Conv') != -1: # if the connection is a convolution
+        weight_shape = list(m.weight.data.size()) # list containing the shape of the weights in the object "m"
+        fan_in = np.prod(weight_shape[1:4]) # dim1 * dim2 * dim3
+        fan_out = np.prod(weight_shape[2:4]) * weight_shape[0] # dim0 * dim2 * dim3
+        w_bound = np.sqrt(6. / (fan_in + fan_out)) # weight bound
+        m.weight.data.uniform_(-w_bound, w_bound) # generating some random weights of order inversely proportional to the size of the tensor of weights
+        m.bias.data.fill_(0) # initializing all the bias with zeros
+    elif classname.find('Linear') != -1: # if the connection is a full connection
+        weight_shape = list(m.weight.data.size()) # list containing the shape of the weights in the object "m"
+        fan_in = weight_shape[1] # dim1
+        fan_out = weight_shape[0] # dim0
+        w_bound = np.sqrt(6. / (fan_in + fan_out)) # weight bound
+        m.weight.data.uniform_(-w_bound, w_bound) # generating some random weights of order inversely proportional to the size of the tensor of weights
+        m.bias.data.fill_(0) # initializing all the bias with zeros
 
-class ActorCritic(nn.Module):
-    def __init__(self, state_size, action_size, hidden_size, mini_batch_size, num_channels = 3, std = 0.0):  # num_channels is 3, because its close close, high, low
-        super(ActorCritic, self).__init__()
 
-        # Fully connected layers
-        self.fc1 = nn.Linear(state_size, 100)      
-        self.fc2 = nn.Linear(100, 500)                     
-        self.fc3 = nn.Linear(500, self.process_out)                     # add the weights from the previous timestep    
+class Actor(nn.Module):
+    """Actor (Policy) Model."""
 
-        self.critic = nn.Sequential(
-            nn.Linear(self.process_out, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, 1)
-        )
-        
-        self.actor = nn.Sequential(
-            nn.Linear(self.process_out, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, action_size),
-        )
+    def __init__(self, state_size, action_size, seed, fc1_units=256, fc2_units=128):
+        """Initialize parameters and build model.
+        Params
+        ======
+            state_size (int): Dimension of each state
+            action_size (int): Dimension of each action
+            seed (int): Random seed
+            fc1_units (int): Number of nodes in first hidden layer
+            fc2_units (int): Number of nodes in second hidden layer
+        """
+        super(Actor, self).__init__()
+        self.seed = torch.manual_seed(seed)
+        self.fc1 = nn.Linear(state_size, fc1_units)
+        self.fc2 = nn.Linear(fc1_units, fc2_units)
+        self.fc3 = nn.Linear(fc2_units, action_size)
+        self.reset_parameters()
 
-        self.log_std = nn.Parameter(torch.ones(1, action_size) * std)
+    def reset_parameters(self):
         self.apply(init_weights)
-        print("############# LOG STD", self.log_std)
-        
 
-    def forward(self, state, prev_action, debug = False):
+    def forward(self, state):
+        """Build an actor (policy) network that maps states -> actions."""
         x = F.relu(self.fc1(state))
-        if debug != False:
-            print("##### FC 1", x.shape)
-
         x = F.relu(self.fc2(x))
-        if debug != False:
-            print("##### FC 2", x.shape, "PREV ACTION", prev_action.shape)
+        return torch.tanh(self.fc3(x))
 
-        x = F.relu(self.fc3(x))
-        if debug != False:
-            print("##### FC 3", x.shape)
 
-        value = self.critic(x)
-        if debug != False:
-            print("##### CRITIC VALUE", value.shape)
+class Critic(nn.Module):
+    """Critic (Value) Model."""
 
-        mu = self.actor(x)
-        mu.unsqueeze_(0)
-        if debug != False:
-            print("##### ACTOR MU", mu.shape)
+    def __init__(self, state_size, action_size, seed, fcs1_units=256, fc2_units=128):
+        """Initialize parameters and build model.
+        Params
+        ======
+            state_size (int): Dimension of each state
+            action_size (int): Dimension of each action
+            seed (int): Random seed
+            fcs1_units (int): Number of nodes in the first hidden layer
+            fc2_units (int): Number of nodes in the second hidden layer
+        """
+        super(Critic, self).__init__()
+        self.seed = torch.manual_seed(seed)
+        self.fcs1 = nn.Linear(state_size, fcs1_units)
+        self.fc2 = nn.Linear(fcs1_units+action_size, fc2_units)
+        self.fc3 = nn.Linear(fc2_units, 1)
+        self.reset_parameters()
 
-        std = self.log_std.exp().expand_as(mu)
-        if debug != False:
-            print("## STD ", std.shape)
+    def reset_parameters(self):
+        self.apply(init_weights)
 
-        dist = Normal(mu, std)
-        sample = dist.sample()
-        if debug != False:
-            print("################# DIST ", sample)
-            
-        return dist, value, sample
-
-    def get_action(self, sample):
-        action = F.softmax(sample, dim=1)
-        return np.ndarray.flatten(action.cpu().numpy())
+    def forward(self, state, action):
+        """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
+        xs = F.relu(self.fcs1(state))
+        x = torch.cat((xs, action), dim=1)
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
+ 

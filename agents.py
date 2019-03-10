@@ -1,307 +1,228 @@
-import argparse
-import math
-import os
-import random
-from collections import deque, namedtuple
-
 import numpy as np
+import random
+import copy
+import os
+from collections import namedtuple, deque
+
+from models import Actor, Critic
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.autograd import Variable
-from torch.distributions import Normal
 
-from models import ActorCritic
+GAMMA = 0.99
+TAU = 1e-2
+LR_ACTOR = 1e-4
+LR_CRITIC = 1e-4
+LEARNING_RATE_DECAY = 5e-8
+BUFFER_SIZE = int(1e5)  
+BATCH_SIZE = 128       
+RANDOM_SEED = 4 
 
-HIDDEN_SIZE         = 50
-LEARNING_RATE       = 0.1e-4
-GAMMA               = 0.99
-GAE_LAMBDA          = 0.95
-PPO_EPSILON         = 0.2
-CRITIC_DISCOUNT     = 0.5
-ENTROPY_BETA        = 0.001
-PPO_STEPS           = 256
-MINI_BATCH_SIZE     = 64
-PPO_EPOCHS          = 3
-TEST_EPOCHS         = 5
-NUM_TESTS           = 2
-TARGET_REWARD       = 2500
-GRADIENT_CLIP       = 5
-NUM_TEST_TRAJECTORY_STARTS = 5
-LAST_UPDATE_LIMIT = 10000
-LEARNING_RATE_DECAY = 0.33
-MINIMUM_LEARNING_BUFFER_SIZE = 10
+class Actor_Crtic_Agent():        
+    def __init__(self, name, device, state_size, n_agents, action_size, load_agent = False):        
 
-class Actor_Crtic_Agent():
-    """Interacts with and learns from the environment"""
-    
-    def __init__(self, state_size, action_size, load_agent = False, trajectory_length = 48, mini_batch_size = 4, random_seed = 2, adam_eps = 1e-5, buffer_size = 100):
-        """Intialize an Agent object
-        Params
-        =======
-        state_size(int): dimension of each state
-        action_size(int): dimension of each action
-        trajectory_length(int): timesteps per trajectory
-        """
-        
-        self.name = "Actor Critic Catalyst"
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = device
 
-        # Environment details
         self.state_size = state_size
+        self.n_agents = n_agents
         self.action_size = action_size
-        self.trajectory_length = trajectory_length
-        self.mini_batch_size = mini_batch_size
-        self.test_action_sample = torch.from_numpy(np.ndarray.flatten(np.random.dirichlet(np.ones(self.action_size), size = 1))).float().to(self.device).unsqueeze(0)      # Generate random starting weights
-        self.train_trajectory_starts = []
-        self.test_trajectory_starts = []       # Keep constant to properly evaluate performance
-        self.last_upgraded_frame = 0           # How many frames ago did the agent perform better than the previous best
-        self.adam_eps = adam_eps
-        self.learning_rate = LEARNING_RATE
-        # Neural network details
-        self.model = ActorCritic(state_size, action_size, HIDDEN_SIZE, self.mini_batch_size).to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr = self.learning_rate, eps = self.adam_eps)
-        self.best_reward = 0
-        self.buffer = ReplayBuffer(self.action_size, buffer_size, self.mini_batch_size, self.device)
+        self.seed = random.seed(RANDOM_SEED)
+        self.name = name
 
-        if(load_agent):
+        # Hyperparameters
+        self.buffer_size = BUFFER_SIZE
+        self.batch_size = BATCH_SIZE
+        self.gamma = GAMMA
+        self.tau = TAU
+        self.lr_actor = LR_ACTOR
+        self.lr_critic = LR_CRITIC
+        self.weight_decay = LEARNING_RATE_DECAY
+
+        # Actor Network (w/ Target Network)
+        self.actor_local = Actor(state_size, action_size, RANDOM_SEED).to(self.device)
+        self.actor_target = Actor(state_size, action_size, RANDOM_SEED).to(self.device)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.lr_actor)
+
+        # Critic Network (w/ Target Network)
+        self.critic_local = Critic(state_size, action_size, RANDOM_SEED).to(self.device)
+        self.critic_target = Critic(state_size, action_size, RANDOM_SEED).to(self.device)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.lr_critic, weight_decay=self.weight_decay)
+
+        if load_agent:
             self.load_agent(self.name)
- 
-        print("########################################## NEURAL NETWORKS\n\n")
-        print(self.model)
-        print("\n\n")
 
-    def step(self, frame_idx, state, next_state, portfolio_weights, final_log_return, done, test_toggle = False):
-        """Suggests action depending on environment
-        Params
-        =======
-        state(np array): state
-        next_state(np array): next_state
-        portfolio_weights(np array): previous action / existing portfolio weights
-        final_log_return(np array): the log return for the last step, differnece between state and next state
-        done(int): whether trajectory is complete or not
-        test_toggle(boolean): toggles between train and test mode
-        """
+        # Noise process
+        self.noise = OUNoise((n_agents, action_size), RANDOM_SEED)
 
+        # Replay memory
+        self.memory = ReplayBuffer(device, action_size, self.buffer_size, self.batch_size, RANDOM_SEED)
+    
+    def step(self, state, action, reward, next_state, done):
+        """Save experience in replay memory, and use random sample from buffer to learn."""
+        # Save experience / reward
+        for i in range(self.n_agents):
+            self.memory.add(state[i,:], action[i,:], reward[i], next_state[i,:], done[i])
+
+        # Learn, if enough samples are available in memory        
+        if len(self.memory) > self.batch_size:
+            experiences = self.memory.sample()
+            self.learn(experiences)
+
+    def act(self, state, add_noise=True):
+        """Returns actions for given state as per current policy."""
         state = torch.from_numpy(state).float().to(self.device)
-        next_state = torch.from_numpy(next_state).float().to(self.device)
+        self.actor_local.eval()
+        with torch.no_grad():
+            action = self.actor_local(state).cpu().data.numpy()
+        self.actor_local.train()        
+        if add_noise:
+            action += self.noise.sample()
+        return np.clip(action, -1, 1)
 
-        prev_action = torch.from_numpy(portfolio_weights).float().to(self.device)      # generate random starting weights
+    def reset(self):
+        self.noise.reset()
 
-        state = state.permute(0, 2, 1)                                                 # transforms the state in the required tensor shape
-        next_state = next_state.permute(0, 2, 1)                                       # transforms the state in the required tensor shape
+    def learn(self, experiences):
+        """Update policy and value parameters using given batch of experience tuples.
+        Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
+        where:
+            actor_target(state) -> action
+            critic_target(state, action) -> Q-value
+        Params
+        ======
+            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
+            gamma (float): discount factor
+        """
+        states, actions, rewards, next_states, dones = experiences
 
-        if test_toggle:
-            self.model.eval()
+        # ---------------------------- update critic ---------------------------- #
+        # Get predicted next-state actions and Q values from target models
+        actions_next = self.actor_target(next_states)
+        Q_targets_next = self.critic_target(next_states, actions_next)
+        # Compute Q targets for current states (y_i)
+        Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
+        # Compute critic loss
+        Q_expected = self.critic_local(states, actions)
+        critic_loss = F.mse_loss(Q_expected, Q_targets)
+        # Minimize the loss
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        # torch.nn.utils.clip_grad_norm(self.critic_local.parameters(), 1)
+        self.critic_optimizer.step()
 
-        dist, value, action_sample = self.model(state, prev_action)
-        action = self.model.get_action(action_sample)
-        mini_rewards = final_log_return * action
-        reward = mini_rewards.sum()
-        print(frame_idx, (np.exp(reward) - 1) * 100, "%")
-        log_probs = dist.log_prob(action_sample)
-        self.buffer.add_sub(state, next_state, prev_action, action, log_probs, value, mini_rewards, done)
+        # ---------------------------- update actor ---------------------------- #
+        # Compute actor loss
+        actions_pred = self.actor_local(states)
+        actor_loss = -self.critic_local(states, actions_pred).mean()
+        # Minimize the loss
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
 
-        if done == 1 and test_toggle == False:
-            _, next_value, _ = self.model(next_state, torch.from_numpy(action).float().to(self.device))
-            returns = self._compute_gae(next_value, self.buffer.sub_rewards, self.buffer.sub_masks, self.buffer.sub_values)
+        # ----------------------- update target networks ----------------------- #
+        self.soft_update(self.critic_local, self.critic_target)
+        self.soft_update(self.actor_local, self.actor_target)
 
-            returns = torch.cat(returns).detach()
-            log_probs = np.concatenate(self.buffer.sub_log_probs)
-            values = torch.from_numpy(np.concatenate(self.buffer.sub_values)).float().to(self.device)
-            states = np.concatenate(self.buffer.sub_states)
-            prev_actions = np.concatenate(self.buffer.sub_prev_actions)
-            actions = np.concatenate(self.buffer.sub_actions)
-            advantage = returns - values
-            self.buffer.add(states, prev_actions, actions, log_probs, values, returns, advantage) 
-            
-            # print("REPLAY SIZE", self.buffer.__len__())
-            if self.buffer.__len__() > MINIMUM_LEARNING_BUFFER_SIZE and test_toggle == False:
-                self._learn()
+    def soft_update(self, local_model, target_model):
+        """Soft update model parameters.
+        θ_target = τ*θ_local + (1 - τ)*θ_target
+        Params
+        ======
+            local_model: PyTorch model (weights will be copied from)
+            target_model: PyTorch model (weights will be copied to)
+            tau (float): interpolation parameter 
+        """
+        tau = self.tau
+        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
+            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
 
-        if test_toggle:
-            self.model.train()
-        
-        return reward
-     
-    def _compute_gae(self, next_value, rewards, masks, values, gamma = GAMMA, tau = GAE_LAMBDA):
-        """Compute Generalized Advantage Estimation"""
-        values = values + [next_value]
-        gae = 0
-        returns = []
-        for step in reversed(range(len(rewards))):
-            rewards[step] = torch.from_numpy(rewards[step]).float().to(self.device)
-            values[step] = torch.from_numpy(values[step]).float().to(self.device)
-            delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
-            gae = delta + gamma * tau * masks[step] * gae
-            returns.insert(0, gae + values[step])
-        return returns
-
-   
-    def _learn(self, clip_param = PPO_EPSILON):
-        """Learn from experiences"""
-        count_steps = 0
-        sum_returns = 0.0
-        sum_advantage = 0.0
-        sum_loss_actor = 0.0
-        sum_loss_critic = 0.0
-        sum_entropy = 0.0
-        sum_loss_total = 0.0
-
-        batch_loss = []
-        states, prev_actions, actions, old_log_probs, values, returns, advantage = self.buffer.sample()
-
-        # print("################# LEARNING")
-        # PPO EPOCHS is the number of times we will go through ALL the training data to make updates
-        for e in range(PPO_EPOCHS):
-            # grabs random sample from replay buffer
-            dist, new_value, new_action_sample = self.model(states, prev_actions, debug = False)
-            entropy = dist.entropy().mean()
-            new_log_probs = dist.log_prob(new_action_sample)
-            ratio = torch.exp(new_log_probs - old_log_probs)
-            # print("############## IDX {} NEW ACTION SAMPLE {}".format(idx, new_action_sample))
-            actor_surr1 = ratio * advantage
-            actor_surr2 = torch.clamp(ratio, 1.0 - clip_param, 1.0 + clip_param) * advantage
-            actor_loss  = - torch.min(actor_surr1, actor_surr2).mean()
-            # critic_loss = (return_ - value).pow(2).mean()   ## PREVIOUS CODE DON'T DELETE
-            ### NEW CODE
-            value_clipped = values + torch.clamp(new_value - values, -PPO_EPSILON, PPO_EPSILON)
-            critic_surr1 = (values - returns).pow(2)
-            critic_surr2 = (value_clipped - returns).pow(2)
-            critic_loss = torch.max(critic_surr1, critic_surr2).mean()
-            ## NEW CODE 
-            loss = actor_loss - ENTROPY_BETA * entropy + CRITIC_DISCOUNT * critic_loss
-            batch_loss.append(loss)
-            # print("####### LOSS", loss, "CRITIC LOSS", critic_loss, "ACTOR LOSS", actor_loss, "ENTROPY", entropy)
-            # print("####### LOSS", loss)
-            # print("#### NEW PROBS {} OLD PROBS {} ENTROPHY {}".format(new_log_probs, old_log_probs, entropy))
-            # print("############################################################################################## LEARNING\n\n ")
-            # print("EPOCH {} IDX {} NEW ACTION SAMPLE {} PREV ACTION SAMPLE {} NEW PROBS {} OLD PROBS {} RATIO {} ADVANTAGE {}\n\n".format(e, idx, new_action_sample, prev_action, new_log_probs, old_log_probs, ratio, advantage))
-            # print("ACTOR ## SURR1 {} SURR2 {} A-LOSS {} \n\n".format(actor_surr1, actor_surr2, actor_loss))
-            # print("CRITIC ## SURR1 {} SURR2 {} C-LOSS {} \n\n".format(critic_surr1, critic_surr2, critic_loss))        
-            # print("EPOCH {} IDX {}".format(e, idx))
-         
-            self.optimizer.zero_grad()
-            # loss /= 1000
-            loss.backward()
-            # `clip_grad_norm` helps prevent the exploding gradient problem in resulting in NaNs
-            nn.utils.clip_grad_norm_(self.model.parameters(), GRADIENT_CLIP)
-            # grad_norm = sum(p.grad.data.norm(2).item() ** 2 for p in self.acmodel.parameters()) ** 0.5
-            
-            self.optimizer.step()
-            # track statistics
-            sum_returns += returns.mean()
-            sum_advantage += advantage.mean()
-            sum_loss_actor += actor_loss
-            sum_loss_critic += critic_loss
-            sum_loss_total += loss
-            sum_entropy += entropy
-            count_steps += 1
-            # self.model.train()
-
-    def save_agent(self, fileName):
+    def save_agent(self):
         """Save the checkpoint"""
-        checkpoint = {'state_dict': self.model.state_dict(), 'best_reward': self.best_reward, 'last_upgraded_frame': self.last_upgraded_frame, 'learning_rate': self.learning_rate, 'test_trajectory_starts': self.test_trajectory_starts}
-
+        checkpoint = {'actor_state_dict': self.actor_target.state_dict(),'critic_state_dict': self.critic_target.state_dict(), 'best_reward': self.best_reward}
+        
         if not os.path.exists("checkpoints"):
-            os.makedirs("checkpoints")
-
-        fileName = 'checkpoints\\' + fileName + '.pth'
+            os.makedirs("checkpoints") 
+        
+        filePath = 'checkpoints\\' + fileName + '.pth'
         # print("\nSaving checkpoint\n")
-        torch.save(checkpoint, fileName)
+        torch.save(checkpoint, filePath)
 
     def load_agent(self, fileName):
         """Load the checkpoint"""
         # print("\nLoading checkpoint\n")
-        filepath = 'checkpoints\\' + fileName + '.pth'
+        filePath = 'checkpoints\\' + fileName + '.pth'
 
-        if os.path.exists(filepath):
-            checkpoint = torch.load(filepath, map_location=lambda storage, loc: storage)
-            self.model.load_state_dict(checkpoint['state_dict'])
+        if os.path.exists(filePath):
+            checkpoint = torch.load(filePath, map_location = lambda storage, loc: storage)
+            self.actor_local.load_state_dict(checkpoint['actor_state_dict'])
+            self.actor_target.load_state_dict(checkpoint['actor_state_dict'])
+            self.critic_local.load_state_dict(checkpoint['critic_state_dict'])
+            self.critic_target.load_state_dict(checkpoint['critic_state_dict'])
             self.best_reward = checkpoint['best_reward']
-            self.last_upgraded_frame = checkpoint['last_upgraded_frame']
-            self.learning_rate = checkpoint['learning_rate']
-            self.test_trajectory_starts = checkpoint['test_trajectory_starts']
-            self.optimizer = optim.Adam(self.model.parameters(), lr = self.learning_rate, eps = self.adam_eps)
 
-            print("Loading checkpoint - Last Best Reward {} at Frame {} with LR {}".format(self.best_reward, self.last_upgraded_frame, self.learning_rate))
+            print("Loading checkpoint - Last Best Reward {} (%) at Frame {} with LR {}".format((np.exp(self.best_reward) - 1) * 100, self.last_upgraded_frame, self.learning_rate))
         else:
             print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(fileName))
 
 
+class OUNoise:
+    """Ornstein-Uhlenbeck process."""
+
+    def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2):
+        """Initialize parameters and noise process."""
+        self.size = size        
+        self.mu = mu * np.ones(size)
+        self.theta = theta
+        self.sigma = sigma        
+        self.seed = random.seed(seed)
+        self.reset()
+
+    def reset(self):
+        """Reset the internal state (= noise) to mean (mu)."""
+        self.state = copy.copy(self.mu)
+
+    def sample(self):
+        """Update internal state and return it as a noise sample."""
+        x = self.state        
+        dx = self.theta * (self.mu - x) + self.sigma * np.random.standard_normal(self.size)
+        self.state = x + dx
+        return self.state
+
 class ReplayBuffer:
-    """Fixed size buffer to store experience tuples"""
-    
-    def __init__(self, action_size, buffer_size, batch_size, device):
-        """Initialize a ReplayBuffer object
-        
+    """Fixed-size buffer to store experience tuples."""
+
+    def __init__(self, device, action_size, buffer_size, batch_size, seed):
+        """Initialize a ReplayBuffer object.
         Params
-        ========
-            action_size (int): dimension of each action
+        ======
             buffer_size (int): maximum size of buffer
             batch_size (int): size of each training batch
-            seed (int): random seed
         """
         self.device = device
+
         self.action_size = action_size
-        self.memory = deque(maxlen = buffer_size)
+        self.memory = deque(maxlen=buffer_size)  # internal memory (deque)
         self.batch_size = batch_size
-        self.experience = namedtuple("Experience", field_names = ["states", "prev_actions", "actions", "log_probs", "values", "returns", "advantage"])
-        self.sub_states = []
-        self.sub_next_states = []
-        self.sub_prev_actions = []
-        self.sub_actions = []
-        self.sub_log_probs = []
-        self.sub_values = []
-        self.sub_rewards = []
-        self.sub_masks = []
-      
-    def add(self, states, prev_actions, actions, log_probs, values, returns, advantage):
-        """Add new experience to memory"""
-        e = self.experience(np.asarray(self.sub_states), np.asarray(self.sub_prev_actions), np.asarray(self.sub_actions), np.asarray(self.sub_log_probs), np.asarray(self.sub_values), returns.cpu().numpy(), advantage.cpu().numpy())
-
-        self.memory.append(e)
-        self.clear_sub_buffer()
-
-    def add_sub(self, state, next_state, prev_action, action, log_probs, value, reward, done):
-        """Adds variables to sub buffer"""
-        self.sub_states.append(state.cpu().numpy())
-        self.sub_next_states.append(next_state.cpu().numpy())
-        self.sub_prev_actions.append(prev_action.cpu().numpy())
-        self.sub_actions.append(action)
-        self.sub_log_probs.append(log_probs.detach().cpu().numpy())
-        self.sub_values.append(value.detach().cpu().numpy())
-        self.sub_rewards.append(reward)
-        self.sub_masks.append(1 - done)
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        self.seed = random.seed(seed)
     
-    def clear_sub_buffer(self):
-        """Clears the sub buffer"""
-        self.sub_states = []
-        self.sub_next_states = []
-        self.sub_prev_actions = []
-        self.sub_actions = []
-        self.sub_log_probs = []
-        self.sub_values = []
-        self.sub_rewards = []
-        self.sub_masks = []
-
-        
+    def add(self, state, action, reward, next_state, done):
+        """Add a new experience to memory."""        
+        e = self.experience(state, action, reward, next_state, done)
+        self.memory.append(e)
+    
     def sample(self):
-        """Randomly sample a batch of experiences from memory"""
-        experience = random.sample(self.memory, k = 1)
-        states, prev_actions, actions, log_probs, values, returns, advantage = zip(*experience)
+        """Randomly sample a batch of experiences from memory."""
+        experiences = random.sample(self.memory, k=self.batch_size)
 
-        states = torch.squeeze(torch.from_numpy(experience[0].states).float().to(self.device))
-        prev_actions = torch.squeeze(torch.from_numpy(experience[0].prev_actions).float().to(self.device))
-        actions = torch.from_numpy(experience[0].actions).float().to(self.device)
-        log_probs = torch.from_numpy(experience[0].log_probs).float().to(self.device)
-        values = torch.from_numpy(experience[0].values).float().to(self.device)
-        returns = torch.from_numpy(experience[0].returns).float().to(self.device)
-        advantage = torch.from_numpy(experience[0].advantage).float().to(self.device)
+        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(self.device)
+        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.device)
+        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.device)
+        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(self.device)
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(self.device)
 
-        return states, prev_actions, actions, log_probs, values, returns, advantage
-
+        return (states, actions, rewards, next_states, dones)
 
     def __len__(self):
         """Return the current size of internal memory."""
