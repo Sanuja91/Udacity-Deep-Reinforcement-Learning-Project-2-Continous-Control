@@ -5,20 +5,19 @@ from collections import deque
 from agents import Actor_Crtic_Agent
 from utilities import initialize_env, get_device
 
-def ddpg(num_agents, n_episodes = 300, max_t = 1000):
+def ddpg(multiple_agents = False, n_episodes = 300, max_t = 1000):
     """ Deep Deterministic Policy Gradients
     Params
     ======
-        num_agents (int): number of agents to gather experience
+        multiple_agents (boolean): boolean for multiple agents
         n_episodes (int): maximum number of training episodes
         max_t (int): maximum number of timesteps per episode
     """
+    env, env_info, states, state_size, action_size, brain_name, num_agents = initialize_env(multiple_agents)
+    
     scores_window = deque(maxlen=100)
     scores = np.zeros(num_agents)
     scores_episode = []
-
-    env, env_info, states, state_size, action_size, brain_name = initialize_env()
-    
     
     agents =[] 
     

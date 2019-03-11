@@ -2,13 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from agents import Actor_Crtic_Agent
-from interact import interact
 from utilities import initialize_env, get_device
 from ddpg import ddpg
 
-NUM_AGENTS = 1
+MULTI = False   # Multiple agents or single
 
-scores = ddpg(NUM_AGENTS)
+scores = ddpg(MULTI)
 
 # plot the scores
 fig = plt.figure()
