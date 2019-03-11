@@ -35,8 +35,6 @@ def ddpg(multiple_agents = False, n_episodes = 300, max_t = 1000):
             
         for t in range(max_t):      
             actions = np.array([agents[i].act(states[i]) for i in range(num_agents)])
-#             if t == 0:
-#                 print("actions", actions)
             env_info = env.step(actions)[brain_name]       # send the action to the environment
             next_states = env_info.vector_observations     # get the next state
             rewards = env_info.rewards                     # get the reward
