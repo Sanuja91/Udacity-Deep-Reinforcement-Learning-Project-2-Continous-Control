@@ -5,7 +5,7 @@ from agents import Actor_Crtic_Agent
 from utilities import initialize_env, get_device
 from ddpg import ddpg
 
-MULTI = False   # Multiple agents or single
+MULTI = True   # Multiple agents or single
 
 scores = ddpg(MULTI)
 
