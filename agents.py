@@ -53,7 +53,7 @@ class Actor_Crtic_Agent():
     
     def step(self, state, action, reward, next_state, done, shared_memory):
         """Save experience in replay memory, and use random sample from buffer to learn."""
-        
+
         # Save experience / reward
         shared_memory.add(state, action, reward, next_state, done)
 
@@ -72,7 +72,7 @@ class Actor_Crtic_Agent():
     def reset(self):
         self.noise.reset()
 
-    def learn(self, experiences):
+    def learn(self, experiences, shared_memory):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
         where:
@@ -83,7 +83,10 @@ class Actor_Crtic_Agent():
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
         """
-        states, actions, rewards, next_states, dones = experiences
+        if shared_memory.priority:
+            states, actions, rewards, next_states, dones, indices, weights = experiences
+        else:
+            states, actions, rewards, next_states, dones = experiences
 
         # ---------------------------- update critic ---------------------------- #
         # Get predicted next-state actions and Q values from target models
@@ -104,6 +107,10 @@ class Actor_Crtic_Agent():
         # Compute actor loss
         actions_pred = self.actor_local(states)
         actor_loss = -self.critic_local(states, actions_pred).mean()
+        if shared_memory.priority:
+            prios = actor_loss.detach().cpu().numpy() * weights + 1e-5
+            shared_memory.update_priorities(indices, prios.data)
+            
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
