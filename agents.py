@@ -55,7 +55,8 @@ class Actor_Crtic_Agent():
         """Save experience in replay memory, and use random sample from buffer to learn."""
 
         # Save experience / reward
-        shared_memory.add(state, action, reward, next_state, done)
+        critic_loss, actor_loss = self.calculate_losses(torch.from_numpy(np.array([state])).float().to(self.device), torch.from_numpy(np.array([action])).float().to(self.device), torch.from_numpy(np.array([next_state])).float().to(self.device), torch.from_numpy(np.array([reward])).float().to(self.device), torch.from_numpy(np.array([done]).astype(np.uint8)).float().to(self.device))
+        shared_memory.add(state, action, reward, next_state, done, actor_loss)
 
     def act(self, state, add_noise = True):
         """Returns actions for given state as per current policy."""
@@ -72,6 +73,24 @@ class Actor_Crtic_Agent():
     def reset(self):
         self.noise.reset()
 
+    def calculate_losses(self, states, actions, next_states, rewards, dones):
+        # Get predicted next-state actions and Q values from target models
+        actions_next = self.actor_target(next_states)
+        Q_targets_next = self.critic_target(next_states, actions_next)
+        
+        # Compute Q targets for current states (y_i)
+        Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
+        
+        # Compute critic loss
+        Q_expected = self.critic_local(states, actions)
+        critic_loss = F.mse_loss(Q_expected, Q_targets)
+
+        # Compute actor loss
+        actions_pred = self.actor_local(states)
+        actor_loss = -self.critic_local(states, actions_pred).mean()
+
+        return critic_loss, actor_loss
+
     def learn(self, experiences, shared_memory):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
@@ -84,19 +103,21 @@ class Actor_Crtic_Agent():
             gamma (float): discount factor
         """
         if shared_memory.priority:
-            states, actions, rewards, next_states, dones, indices, weights = experiences
+            states, actions, rewards, next_states, dones, indices = experiences
         else:
             states, actions, rewards, next_states, dones = experiences
 
         # ---------------------------- update critic ---------------------------- #
-        # Get predicted next-state actions and Q values from target models
-        actions_next = self.actor_target(next_states)
-        Q_targets_next = self.critic_target(next_states, actions_next)
-        # Compute Q targets for current states (y_i)
-        Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
-        # Compute critic loss
-        Q_expected = self.critic_local(states, actions)
-        critic_loss = F.mse_loss(Q_expected, Q_targets)
+        # # Get predicted next-state actions and Q values from target models
+        # actions_next = self.actor_target(next_states)
+        # Q_targets_next = self.critic_target(next_states, actions_next)
+        # # Compute Q targets for current states (y_i)
+        # Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
+        # # Compute critic loss
+        # Q_expected = self.critic_local(states, actions)
+        # critic_loss = F.mse_loss(Q_expected, Q_targets)
+        critic_loss. actor_loss = self.calculate_losses(states, actions, next_states, rewards, dones)
+        
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -104,12 +125,9 @@ class Actor_Crtic_Agent():
         self.critic_optimizer.step()
 
         # ---------------------------- update actor ---------------------------- #
-        # Compute actor loss
-        actions_pred = self.actor_local(states)
-        actor_loss = -self.critic_local(states, actions_pred).mean()
         if shared_memory.priority:
-            prios = actor_loss.detach().cpu().numpy() * weights + 1e-5
-            shared_memory.update_priorities(indices, prios.data)
+            # prios = actor_loss.detach().cpu().numpy() * weights + 1e-5
+            shared_memory.update(indices, actor_loss)
             
         # Minimize the loss
         self.actor_optimizer.zero_grad()
