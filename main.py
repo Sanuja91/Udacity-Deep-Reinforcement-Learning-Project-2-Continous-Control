@@ -3,11 +3,17 @@ import matplotlib.pyplot as plt
 
 from agents import Actor_Crtic_Agent
 from utilities import initialize_env, get_device
-from ddpg2 import ddpg
+from ddpg import ddpg
 
-MULTI = True   # Multiple agents or single
+AGENT_NAME = "FC ONLY - BASIC REPLAY"
+MULTI = False   # Multiple agents or single
 
-scores = ddpg(MULTI)
+if MULTI:
+    AGENT_NAME = "MULTI AGENT - " + AGENT_NAME
+else:
+    AGENT_NAME = "SINGLE AGENT - " + AGENT_NAME
+
+scores = ddpg(AGENT_NAME, multiple_agents = MULTI)
 
 # plot the scores
 fig = plt.figure()

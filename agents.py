@@ -12,8 +12,8 @@ import torch.optim as optim
 
 GAMMA = 0.99
 TAU = 1e-2
-LR_ACTOR = 1e-4
-LR_CRITIC = 1e-4
+LR_ACTOR = 1e-3
+LR_CRITIC = 1e-3
 LEARNING_RATE_DECAY = 5e-8
 RANDOM_SEED = 4 
 
@@ -27,6 +27,7 @@ class Actor_Crtic_Agent():
         self.seed = random.seed(RANDOM_SEED)
         self.name = name
         self.id = id
+        self.best_reward = 0
 
         # Hyperparameters
         self.gamma = GAMMA
@@ -53,10 +54,13 @@ class Actor_Crtic_Agent():
     
     def step(self, state, action, reward, next_state, done, shared_memory):
         """Save experience in replay memory, and use random sample from buffer to learn."""
-
+        shared_memory.add(state, action, reward, next_state, done)
+        
+        if reward > self.best_reward:
+            self.best_reward = reward
         # Save experience / reward
-        critic_loss, actor_loss = self.calculate_losses(torch.from_numpy(np.array([state])).float().to(self.device), torch.from_numpy(np.array([action])).float().to(self.device), torch.from_numpy(np.array([next_state])).float().to(self.device), torch.from_numpy(np.array([reward])).float().to(self.device), torch.from_numpy(np.array([done]).astype(np.uint8)).float().to(self.device))
-        shared_memory.add(state, action, reward, next_state, done, actor_loss)
+        # critic_loss, actor_loss = self.calculate_losses(torch.from_numpy(np.array([state])).float().to(self.device), torch.from_numpy(np.array([action])).float().to(self.device), torch.from_numpy(np.array([next_state])).float().to(self.device), torch.from_numpy(np.array([reward])).float().to(self.device), torch.from_numpy(np.array([done]).astype(np.uint8)).float().to(self.device))
+        
 
     def act(self, state, add_noise = True):
         """Returns actions for given state as per current policy."""
@@ -103,7 +107,7 @@ class Actor_Crtic_Agent():
             gamma (float): discount factor
         """
         if shared_memory.priority:
-            states, actions, rewards, next_states, dones, indices = experiences
+            states, actions, rewards, next_states, dones, indices, weights = experiences
         else:
             states, actions, rewards, next_states, dones = experiences
 
@@ -116,7 +120,7 @@ class Actor_Crtic_Agent():
         # # Compute critic loss
         # Q_expected = self.critic_local(states, actions)
         # critic_loss = F.mse_loss(Q_expected, Q_targets)
-        critic_loss. actor_loss = self.calculate_losses(states, actions, next_states, rewards, dones)
+        critic_loss, actor_loss = self.calculate_losses(states, actions, next_states, rewards, dones)
         
         # Minimize the loss
         self.critic_optimizer.zero_grad()
@@ -151,7 +155,7 @@ class Actor_Crtic_Agent():
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
 
-    def save_agent(self):
+    def save_agent(self, fileName):
         """Save the checkpoint"""
         checkpoint = {'actor_state_dict': self.actor_target.state_dict(),'critic_state_dict': self.critic_target.state_dict(), 'best_reward': self.best_reward}
         

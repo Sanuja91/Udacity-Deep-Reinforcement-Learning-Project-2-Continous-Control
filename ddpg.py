@@ -2,10 +2,9 @@ import numpy as np
 import random
 import torch
 from collections import deque
-from memory import NaivePrioritizedBuffer
-from memory2 import PrioritizedBuffer
+from memory import NaivePrioritizedBuffer, ReplayBuffer
 from agents import Actor_Crtic_Agent
-from utilities import initialize_env, get_device
+from utilities import initialize_env, get_device, update_csv
 
 BUFFER_SIZE = int(1e5)  
 BATCH_SIZE = 128       
@@ -29,10 +28,11 @@ def share_learning(shared_model, agents):
     return new_agents
 
 
-def ddpg(multiple_agents = False, PER = False, n_episodes = 300, max_t = 1000):
+def ddpg(agent_name, multiple_agents = False, PER = False, n_episodes = 300, max_t = 1000):
     """ Deep Deterministic Policy Gradients
     Params
     ======
+        agent_name (string): agent name
         multiple_agents (boolean): boolean for multiple agents
         PER (boolean): 
         n_episodes (int): maximum number of training episodes
@@ -46,10 +46,9 @@ def ddpg(multiple_agents = False, PER = False, n_episodes = 300, max_t = 1000):
     scores_episode = []
     
     agents = [] 
-    # shared_memory = NaivePrioritizedBuffer(device, BUFFER_SIZE, BATCH_SIZE)
-    shared_memory = PrioritizedBuffer(device, BUFFER_SIZE, BATCH_SIZE)
+    shared_memory = ReplayBuffer(device, BUFFER_SIZE, BATCH_SIZE, RANDOM_SEED)
     for agent_id in range(num_agents):
-        agents.append(Actor_Crtic_Agent(brain_name, agent_id, device, state_size, action_size))
+        agents.append(Actor_Crtic_Agent(agent_name, agent_id, device, state_size, action_size))
     
     for i_episode in range(1, n_episodes + 1):
         env_info = env.reset(train_mode = True)[brain_name]
@@ -81,18 +80,24 @@ def ddpg(multiple_agents = False, PER = False, n_episodes = 300, max_t = 1000):
                       .format(t, np.mean(scores), np.min(scores), np.max(scores)), end="") 
             if np.any(dones):
                 break 
-                
+      
         score = np.mean(scores)
         scores_window.append(score)       # save most recent score
         scores_episode.append(score)
 
-        print('\rEpisode {}\tScore: {:.2f}\tAverage Score: {:.2f}'.format(i_episode, score, np.mean(scores_window)), end="\n")
+        print('\rEpisode {}\tScore: {:.2f}\tAverage Score: {:.2f}\tMax Score: {:.2f}'.format(i_episode, score, np.mean(scores_window), np.max(scores)), end="\n")
+        update_csv(agent_name, i_episode, np.mean(scores_window), np.max(scores))
+        agents[0].save_agent(agent_name)
+
+    # Early stop
+    if i_episode == 100:
+        return scores_episode
+
         if i_episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
         if np.mean(scores_window)>=30.0:
             print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(i_episode-100, np.mean(scores_window)))
-            # torch.save(Agent.actor_local.state_dict(), 'checkpoint_actor.pth')
-            # torch.save(Agent.critic_local.state_dict(), 'checkpoint_critic.pth')
+            agents[0].save_agent(agent_name + "Complete")
             break
             
     return scores_episode

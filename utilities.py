@@ -1,6 +1,7 @@
 from unityagents import UnityEnvironment
 import numpy as np
-import torch
+import torch, time, os
+import pandas as pd
 
 def initialize_env(multiple_agents = False):
     """Initialies the environment 
@@ -56,6 +57,24 @@ def normalize(x):
     return x
 
 
-
+def update_csv(fileName, episode, average_score, max_score):
+    """Updates a CSV file with train and test rewards"""
+    COLUMN_NAMES = ["EPISODE", "AVERAGE SCORE", "MAX_SCORE"]  
+    file_path = "results\\" + fileName + ".csv"
+    average_score = float("{0:.2f}".format(average_score))
+    max_score = float("{0:.2f}".format(max_score))
+    if os.path.exists(file_path):
+        df = pd.DataFrame(columns = COLUMN_NAMES)    
+        df.set_index("EPISODE", inplace = True)
+        df.at[episode] = np.array([average_score, max_score])
+        prev_df = pd.read_csv(file_path)
+        prev_df.set_index("EPISODE", inplace = True)
+        df = pd.concat([prev_df, df])
+        df.to_csv(file_path)
+    else:
+        df = pd.DataFrame(columns = COLUMN_NAMES)    
+        df.set_index("EPISODE", inplace = True)
+        df.at[episode] = np.array([average_score, max_score])
+        df.to_csv(file_path)
 
 
