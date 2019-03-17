@@ -4,7 +4,7 @@ import copy
 import os
 
 
-from models import Actor, Critic
+from models2 import Actor, Critic
 
 import torch
 import torch.nn.functional as F

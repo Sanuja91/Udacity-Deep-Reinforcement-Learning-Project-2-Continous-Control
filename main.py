@@ -5,8 +5,8 @@ from agents import Actor_Crtic_Agent
 from utilities import initialize_env, get_device
 from ddpg import ddpg
 
-AGENT_NAME = "FC ONLY - BASIC REPLAY"
-MULTI = False   # Multiple agents or single
+AGENT_NAME = "FC SEQ MED - BASIC REPLAY"
+MULTI = True   # Multiple agents or single
 
 if MULTI:
     AGENT_NAME = "MULTI AGENT - " + AGENT_NAME

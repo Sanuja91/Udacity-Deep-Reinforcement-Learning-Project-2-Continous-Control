@@ -69,6 +69,7 @@ def ddpg(agent_name, multiple_agents = False, PER = False, n_episodes = 300, max
             for i in range(num_agents):
                 agents[i].step(states[i], actions[i], rewards[i], next_states[i], dones[i], shared_memory) 
             if shared_memory.batch_passed():
+                # exit()
                 experiences = shared_memory.sample()
                 agents[0].learn(experiences, shared_memory)
                 agents = share_learning(agents[0].actor_local, agents)
