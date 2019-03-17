@@ -89,9 +89,9 @@ def ddpg(agent_name, multiple_agents = False, PER = False, n_episodes = 300, max
         update_csv(agent_name, i_episode, np.mean(scores_window), np.max(scores))
         agents[0].save_agent(agent_name)
 
-    # Early stop
-    if i_episode == 100:
-        return scores_episode
+        # Early stop
+        if i_episode == 100:
+            return scores_episode
 
         if i_episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
