@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 from agents import Actor_Crtic_Agent
 from utilities import initialize_env, get_device
-from ddpg import ddpg
+from ddpg2 import ddpg
 
 MULTI = True   # Multiple agents or single
 

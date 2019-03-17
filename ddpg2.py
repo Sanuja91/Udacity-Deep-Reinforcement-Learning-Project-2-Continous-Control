@@ -4,7 +4,7 @@ import torch
 from collections import deque
 from memory import NaivePrioritizedBuffer
 from memory2 import PrioritizedBuffer
-from agents import Actor_Crtic_Agent
+from agents2 import Actor_Crtic_Agent
 from utilities import initialize_env, get_device
 
 BUFFER_SIZE = int(1e5)  
@@ -69,9 +69,9 @@ def ddpg(multiple_agents = False, PER = False, n_episodes = 300, max_t = 1000):
             
             for i in range(num_agents):
                 agents[i].step(states[i], actions[i], rewards[i], next_states[i], dones[i], shared_memory) 
+
             if shared_memory.batch_passed():
-                experiences = shared_memory.sample()
-                agents[0].learn(experiences, shared_memory)
+                agents[0].learn(shared_memory)
                 agents = share_learning(agents[0].actor_local, agents)
  
             states = next_states
