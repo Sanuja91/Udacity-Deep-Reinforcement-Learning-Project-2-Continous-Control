@@ -51,12 +51,16 @@ class Actor_Crtic_Agent():
         # Noise process
         self.noise = OUNoise(action_size, RANDOM_SEED)
     
-    def step(self, state, action, reward, next_state, done, shared_memory):
+    def step(self, states, actions, rewards, next_states, dones, shared_memory):
         """Save experience in replay memory, and use random sample from buffer to learn."""
 
+        for state, action, reward, next_state, done in zip(states, actions, rewards, next_states, dones):
+            shared_memory.add(state, action, reward, next_state, done)
+
+
         # Save experience / reward
-        critic_loss, actor_loss = self.calculate_losses(torch.from_numpy(np.array([state])).float().to(self.device), torch.from_numpy(np.array([action])).float().to(self.device), torch.from_numpy(np.array([next_state])).float().to(self.device), torch.from_numpy(np.array([reward])).float().to(self.device), torch.from_numpy(np.array([done]).astype(np.uint8)).float().to(self.device))
-        shared_memory.add(state, action, reward, next_state, done, actor_loss)
+        # critic_loss, actor_loss = self.calculate_losses(torch.from_numpy(np.array([state])).float().to(self.device), torch.from_numpy(np.array([action])).float().to(self.device), torch.from_numpy(np.array([next_state])).float().to(self.device), torch.from_numpy(np.array([reward])).float().to(self.device), torch.from_numpy(np.array([done]).astype(np.uint8)).float().to(self.device))
+        
 
     def act(self, state, add_noise = True):
         """Returns actions for given state as per current policy."""
@@ -103,7 +107,7 @@ class Actor_Crtic_Agent():
             gamma (float): discount factor
         """
         if shared_memory.priority:
-            states, actions, rewards, next_states, dones, indices = experiences
+            states, actions, rewards, next_states, dones, indices, weights = experiences
         else:
             states, actions, rewards, next_states, dones = experiences
 
@@ -116,7 +120,7 @@ class Actor_Crtic_Agent():
         # # Compute critic loss
         # Q_expected = self.critic_local(states, actions)
         # critic_loss = F.mse_loss(Q_expected, Q_targets)
-        critic_loss. actor_loss = self.calculate_losses(states, actions, next_states, rewards, dones)
+        critic_loss, actor_loss = self.calculate_losses(states, actions, next_states, rewards, dones)
         
         # Minimize the loss
         self.critic_optimizer.zero_grad()

@@ -3,11 +3,11 @@ import matplotlib.pyplot as plt
 
 from agents import Actor_Crtic_Agent
 from utilities import initialize_env, get_device
-from ddpg2 import ddpg
+from ddpg import ddpg, batch_ddpg
 
 MULTI = True   # Multiple agents or single
 
-scores = ddpg(MULTI)
+scores = batch_ddpg(MULTI)
 
 # plot the scores
 fig = plt.figure()
