@@ -4,7 +4,7 @@ import copy
 import os
 
 
-from models import Actor, Critic
+from models2 import Actor, Critic
 
 import torch
 import torch.nn.functional as F
@@ -12,8 +12,8 @@ import torch.optim as optim
 
 GAMMA = 0.99
 TAU = 1e-2
-LR_ACTOR = 1e-4
-LR_CRITIC = 1e-4
+LR_ACTOR = 1e-3
+LR_CRITIC = 1e-3
 LEARNING_RATE_DECAY = 5e-8
 RANDOM_SEED = 4 
 
@@ -27,6 +27,7 @@ class Actor_Crtic_Agent():
         self.seed = random.seed(RANDOM_SEED)
         self.name = name
         self.id = id
+        self.best_reward = 0
 
         # Hyperparameters
         self.gamma = GAMMA
@@ -58,6 +59,10 @@ class Actor_Crtic_Agent():
             shared_memory.add(state, action, reward, next_state, done)
 
 
+        # shared_memory.add(state, action, reward, next_state, done)
+        
+        if reward > self.best_reward:
+            self.best_reward = reward
         # Save experience / reward
         # critic_loss, actor_loss = self.calculate_losses(torch.from_numpy(np.array([state])).float().to(self.device), torch.from_numpy(np.array([action])).float().to(self.device), torch.from_numpy(np.array([next_state])).float().to(self.device), torch.from_numpy(np.array([reward])).float().to(self.device), torch.from_numpy(np.array([done]).astype(np.uint8)).float().to(self.device))
         
@@ -155,7 +160,7 @@ class Actor_Crtic_Agent():
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
 
-    def save_agent(self):
+    def save_agent(self, fileName):
         """Save the checkpoint"""
         checkpoint = {'actor_state_dict': self.actor_target.state_dict(),'critic_state_dict': self.critic_target.state_dict(), 'best_reward': self.best_reward}
         
