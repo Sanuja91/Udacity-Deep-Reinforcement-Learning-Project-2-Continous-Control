@@ -12,8 +12,8 @@ import torch.optim as optim
 
 GAMMA = 0.99
 TAU = 1e-2
-LR_ACTOR = 1e-3
-LR_CRITIC = 1e-3
+LR_ACTOR = 1e-4
+LR_CRITIC = 1e-4
 LEARNING_RATE_DECAY = 5e-8
 RANDOM_SEED = 4 
 
@@ -54,26 +54,26 @@ class Actor_Crtic_Agent():
     
     def step(self, states, actions, rewards, next_states, dones, shared_memory):
         """Save experience in replay memory, and use random sample from buffer to learn."""
-
+        # print("BATCH SHAPES || ","S", states.shape, "A", actions.shape, "R", type(rewards), "NS", next_states.shape, "D", type(dones))
         for state, action, reward, next_state, done in zip(states, actions, rewards, next_states, dones):
             shared_memory.add(state, action, reward, next_state, done)
+            # print("SHAPES || ","S", state.shape, "A", action.shape, "R", type(reward), "NS", next_state.shape, "D", type(done))
+            # exit()
+            if reward > self.best_reward:
+                self.best_reward = reward
 
-
-        # shared_memory.add(state, action, reward, next_state, done)
-        
-        if reward > self.best_reward:
-            self.best_reward = reward
-        # Save experience / reward
-        # critic_loss, actor_loss = self.calculate_losses(torch.from_numpy(np.array([state])).float().to(self.device), torch.from_numpy(np.array([action])).float().to(self.device), torch.from_numpy(np.array([next_state])).float().to(self.device), torch.from_numpy(np.array([reward])).float().to(self.device), torch.from_numpy(np.array([done]).astype(np.uint8)).float().to(self.device))
-        
-
-    def act(self, state, add_noise = True):
+    def act(self, state, add_noise = True, train = True):
         """Returns actions for given state as per current policy."""
         state = torch.from_numpy(state).float().to(self.device)
-        self.actor_local.eval()
-        with torch.no_grad():
+        if train:
+            self.actor_local.train()        
             action = self.actor_local(state).cpu().data.numpy()
-        self.actor_local.train()        
+
+        else:
+            self.actor_local.eval()
+            with torch.no_grad():
+                action = self.actor_local(state).cpu().data.numpy()
+        
         if add_noise:
             noise = self.noise.sample()
             action += noise

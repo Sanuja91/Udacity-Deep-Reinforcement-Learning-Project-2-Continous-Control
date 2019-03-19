@@ -133,33 +133,31 @@ class Critic(nn.Module):
 
         self.fcs1 = nn.Sequential(
             nn.Linear(state_size, FCS1),
-            nn.InstanceNorm1d(FCS1),
+            nn.LayerNorm(FCS1),
             nn.ReLU()
         )
 
         self.fcs2 = nn.Sequential(
             nn.Linear(FCS1, FCS2),
-            nn.InstanceNorm1d(FCS2),
+            nn.LayerNorm(FCS2),
             nn.ReLU()
         )
 
         self.fcs3 = nn.Sequential(
             nn.Linear(FCS2, FCS3),
-            nn.InstanceNorm1d(FCS3),
+            nn.LayerNorm(FCS3),
             nn.ReLU()
         )
 
         self.fc4 = nn.Sequential(
             nn.Linear(FCS3 + action_size, FC4),
-            nn.InstanceNorm1d(FC4),
+            nn.LayerNorm(FC4),
             nn.ReLU()
         )
 
 
         self.fc5 = nn.Sequential(
-            nn.Linear(FC4, 1),
-            nn.InstanceNorm1d(1),
-            nn.ReLU()
+            nn.Linear(FC4, 1)
         )
 
         self.reset_parameters()
