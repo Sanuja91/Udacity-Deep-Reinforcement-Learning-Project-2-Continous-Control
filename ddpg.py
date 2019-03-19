@@ -124,7 +124,7 @@ def batch_ddpg(agent_name, multiple_agents = False, PER = False, n_episodes = 30
     agent = Actor_Crtic_Agent(brain_name, agent_name, device, state_size, action_size)
 
     for i_episode in range(1, n_episodes + 1):
-        env_info = env.reset(train_mode = False)[brain_name]
+        env_info = env.reset(train_mode = True)[brain_name]
         states = env_info.vector_observations
         
         agent.reset()

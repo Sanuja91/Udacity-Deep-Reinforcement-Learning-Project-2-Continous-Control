@@ -128,8 +128,8 @@ class Critic(nn.Module):
         self.seed = torch.manual_seed(seed)
         FCS1 = 50
         FCS2 = 100
-        FCS3 = 100
-        FC4 = 50
+        FCS3 = 4
+        FC4 = 25
 
         self.fcs1 = nn.Sequential(
             nn.Linear(state_size, FCS1),
