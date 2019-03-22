@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from agents import Actor_Crtic_Agent
 from utilities import initialize_env, get_device
 from ddpg import ddpg, batch_ddpg
+from a2c import actor_critic
 
 AGENT_NAME = "FC SEQ MED - BASIC REPLAY - BATCH DDPG"
 MULTI = True   # Multiple agents or single
@@ -13,7 +14,7 @@ if MULTI:
 else:
     AGENT_NAME = "SINGLE AGENT - " + AGENT_NAME
 
-scores = batch_ddpg(AGENT_NAME, multiple_agents = MULTI)
+scores = actor_critic(AGENT_NAME, multiple_agents = MULTI)
 
 # plot the scores
 fig = plt.figure()

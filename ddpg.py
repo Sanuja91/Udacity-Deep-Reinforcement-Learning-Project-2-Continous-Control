@@ -104,7 +104,7 @@ def ddpg(agent_name, multiple_agents = False, PER = False, n_episodes = 300, max
     return scores_episode
 
 
-def batch_ddpg(agent_name, multiple_agents = False, PER = False, n_episodes = 300, max_t = 50):
+def batch_ddpg(agent_name, multiple_agents = False, PER = False, n_episodes = 300, max_t = 1000):
     """ Batch processed the states in a single forward pass with a single neural network
     Params
     ======

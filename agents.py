@@ -5,6 +5,7 @@ import os
 
 
 from models2 import Actor, Critic
+from memory import TrajectoryReplayBuffer
 
 import torch
 import torch.nn.functional as F
@@ -18,17 +19,19 @@ LEARNING_RATE_DECAY = 5e-8
 RANDOM_SEED = 4 
 
 class Actor_Crtic_Agent():        
-    def __init__(self, name, id, device, state_size, action_size, load_agent = False):        
+    def __init__(self, name, id, device, state_size, action_size, num_agents, buffer_size, batch_size, seed, max_trajectory_size, min_trajectory_size, load_agent = False):        
 
         self.device = device
 
         self.state_size = state_size
         self.action_size = action_size
         self.seed = random.seed(RANDOM_SEED)
+        self.num_agents = num_agents
         self.name = name
         self.id = id
         self.best_reward = 0
-
+        self.memory = TrajectoryReplayBuffer(self.device, buffer_size, batch_size, seed, max_trajectory_size, min_trajectory_size, range(self.num_agents))
+        
         # Hyperparameters
         self.gamma = GAMMA
         self.tau = TAU
@@ -37,14 +40,12 @@ class Actor_Crtic_Agent():
         self.weight_decay = LEARNING_RATE_DECAY
 
         # Actor Network (w/ Target Network)
-        self.actor_local = Actor(state_size, action_size, RANDOM_SEED).to(self.device)
-        self.actor_target = Actor(state_size, action_size, RANDOM_SEED).to(self.device)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.lr_actor)
+        self.actor = Actor(state_size, action_size, RANDOM_SEED).to(self.device)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=self.lr_actor)
 
         # Critic Network (w/ Target Network)
-        self.critic_local = Critic(state_size, action_size, RANDOM_SEED).to(self.device)
-        self.critic_target = Critic(state_size, action_size, RANDOM_SEED).to(self.device)
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.lr_critic, weight_decay=self.weight_decay)
+        self.critic = Critic(state_size, action_size, RANDOM_SEED).to(self.device)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.lr_critic, weight_decay=self.weight_decay)
 
         if load_agent:
             self.load_agent(self.name)
@@ -52,113 +53,78 @@ class Actor_Crtic_Agent():
         # Noise process
         self.noise = OUNoise(action_size, RANDOM_SEED)
     
-    def step(self, states, actions, rewards, next_states, dones, shared_memory):
+    def step(self, states, actions, rewards, next_states, dones, values, log_probs):
         """Save experience in replay memory, and use random sample from buffer to learn."""
-        # print("BATCH SHAPES || ","S", states.shape, "A", actions.shape, "R", type(rewards), "NS", next_states.shape, "D", type(dones))
-        for state, action, reward, next_state, done in zip(states, actions, rewards, next_states, dones):
-            shared_memory.add(state, action, reward, next_state, done)
-            # print("SHAPES || ","S", state.shape, "A", action.shape, "R", type(reward), "NS", next_state.shape, "D", type(done))
-            # exit()
-            if reward > self.best_reward:
-                self.best_reward = reward
-
-    def act(self, state, add_noise = True, train = True):
-        """Returns actions for given state as per current policy."""
-        state = torch.from_numpy(state).float().to(self.device)
-        if train:
-            self.actor_local.train()        
-            action = self.actor_local(state).cpu().data.numpy()
-
-        else:
-            self.actor_local.eval()
-            with torch.no_grad():
-                action = self.actor_local(state).cpu().data.numpy()
+        terminal_state_reached = self.memory.buffer_experiences(states, actions, rewards, next_states, dones, values, log_probs) 
         
+        if np.max(rewards) > self.best_reward:
+            self.best_reward = np.max(rewards) 
+
+        # Buffers experiences and checks if terminal state has been reached and if enough batches are there to learn
+        if terminal_state_reached and self.memory.batch_passed:
+            self._learn()
+
+
+    def act(self, states, add_noise = True, train = True):
+        """Returns actions for given states as per current policy."""
+        states = torch.from_numpy(states).float().to(self.device)
+        if train:
+            self.actor.train()        
+            distribution = self.actor(states)
+        else:
+            self.actor.eval()
+            with torch.no_grad():
+                distribution = self.actor(states)
+            self.actor.train()
+
+        actions = self.actor.get_actions(distribution, n = self.num_agents)
+        log_probs = distribution.log_prob(actions.squeeze(0)).squeeze(0).cpu().data.numpy()
+        
+        print("ACTIONS", actions.cpu().data.numpy().shape, "LOG PROBS", log_probs.shape)
+        values = self.critic(states, actions).cpu().data.numpy()
+    
+        actions = actions.cpu().data.numpy()
         if add_noise:
             noise = self.noise.sample()
-            action += noise
-        return np.clip(action, -1, 1)
+            actions += noise
+        return np.clip(actions, -1, 1), values, log_probs
 
     def reset(self):
         self.noise.reset()
 
-    def calculate_losses(self, states, actions, next_states, rewards, dones):
-        # Get predicted next-state actions and Q values from target models
-        actions_next = self.actor_target(next_states)
-        Q_targets_next = self.critic_target(next_states, actions_next)
-        
-        # Compute Q targets for current states (y_i)
-        Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
-        
-        # Compute critic loss
-        Q_expected = self.critic_local(states, actions)
-        critic_loss = F.mse_loss(Q_expected, Q_targets)
+    def _learn(self):
+        """Samples trajectories and learns from them"""
+        for states, actions, rewards, next_states, dones, values, log_probs in self.memory.sample_trajectories():
+            masks = 1 - dones
+            advantages, returns = self._estimate_advantages(rewards, masks, values, GAMMA, TAU, self.device)
 
-        # Compute actor loss
-        actions_pred = self.actor_local(states)
-        actor_loss = -self.critic_local(states, actions_pred).mean()
-
-        return critic_loss, actor_loss
-
-    def learn(self, experiences, shared_memory):
-        """Update policy and value parameters using given batch of experience tuples.
-        Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
-        where:
-            actor_target(state) -> action
-            critic_target(state, action) -> Q-value
-        Params
-        ======
-            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
-            gamma (float): discount factor
-        """
-        if shared_memory.priority:
-            states, actions, rewards, next_states, dones, indices, weights = experiences
-        else:
-            states, actions, rewards, next_states, dones = experiences
-
-        # ---------------------------- update critic ---------------------------- #
-        # # Get predicted next-state actions and Q values from target models
-        # actions_next = self.actor_target(next_states)
-        # Q_targets_next = self.critic_target(next_states, actions_next)
-        # # Compute Q targets for current states (y_i)
-        # Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
-        # # Compute critic loss
-        # Q_expected = self.critic_local(states, actions)
-        # critic_loss = F.mse_loss(Q_expected, Q_targets)
-        critic_loss, actor_loss = self.calculate_losses(states, actions, next_states, rewards, dones)
-        
-        # Minimize the loss
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        # torch.nn.utils.clip_grad_norm(self.critic_local.parameters(), 1)
-        self.critic_optimizer.step()
-
-        # ---------------------------- update actor ---------------------------- #
-        if shared_memory.priority:
-            # prios = actor_loss.detach().cpu().numpy() * weights + 1e-5
-            shared_memory.update(indices, actor_loss)
+            # (policy_net, value_net, optimizer_policy, optimizer_value, states, actions, returns, advantages, l2_reg):
             
-        # Minimize the loss
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
+            distribution = self.actor(states)
+            new_actions = self.actor.get_actions(distribution, n = self.num_agents)
+            # log_probs = distribution.log_prob(actions).squeeze(0)
+            # values = self.critic(states, actions).cpu().data.numpy()
 
-        # ----------------------- update target networks ----------------------- #
-        self.soft_update(self.critic_local, self.critic_target)
-        self.soft_update(self.actor_local, self.actor_target)
+            """Update critic"""
+            values_pred = self.critic(states, new_actions)
+            value_loss = (values_pred - returns).pow(2).mean()
 
-    def soft_update(self, local_model, target_model):
-        """Soft update model parameters.
-        θ_target = τ*θ_local + (1 - τ)*θ_target
-        Params
-        ======
-            local_model: PyTorch model (weights will be copied from)
-            target_model: PyTorch model (weights will be copied to)
-            tau (float): interpolation parameter 
-        """
-        tau = self.tau
-        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
+            # weight decay
+            # for param in value_net.parameters():
+            #     value_loss += param.pow(2).sum() * l2_reg
+            self.critic_optimizer.zero_grad()
+            value_loss.backward()
+            self.critic_optimizer.step()
+
+            """Update policy"""
+            # log_probs = policy_net.get_log_prob(states, actions)
+            policy_loss = -(log_probs * advantages).mean()
+            # policy_loss = -values_pred.mean()
+            self.actor_optimizer.zero_grad()
+            policy_loss.backward()
+            # torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 40)
+            self.actor_optimizer.step()     
+
 
     def save_agent(self, fileName):
         """Save the checkpoint"""
@@ -178,16 +144,38 @@ class Actor_Crtic_Agent():
 
         if os.path.exists(filePath):
             checkpoint = torch.load(filePath, map_location = lambda storage, loc: storage)
-            self.actor_local.load_state_dict(checkpoint['actor_state_dict'])
+            self.actor.load_state_dict(checkpoint['actor_state_dict'])
             self.actor_target.load_state_dict(checkpoint['actor_state_dict'])
-            self.critic_local.load_state_dict(checkpoint['critic_state_dict'])
+            self.critic.load_state_dict(checkpoint['critic_state_dict'])
             self.critic_target.load_state_dict(checkpoint['critic_state_dict'])
             self.best_reward = checkpoint['best_reward']
 
             print("Loading checkpoint - Last Best Reward {} (%) at Frame {} with LR {}".format((np.exp(self.best_reward) - 1) * 100, self.last_upgraded_frame, self.learning_rate))
         else:
-            print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(fileName))
+            print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(fileName))        
 
+    def _estimate_advantages(self, rewards, masks, values, gamma, tau, device):
+        """Calculates generalized advantage estimates] (GAE)"""
+        
+        rewards, masks, values = rewards.cpu(), masks.cpu(), values.cpu()
+        tensor_type = type(rewards)
+        deltas = tensor_type(rewards.size(0), 1)
+        advantages = tensor_type(rewards.size(0), 1)
+
+        prev_value = 0
+        prev_advantage = 0
+        for i in reversed(range(rewards.size(0))):
+            deltas[i] = rewards[i] + gamma * prev_value * masks[i] - values[i]
+            advantages[i] = deltas[i] + gamma * tau * prev_advantage * masks[i]
+
+            prev_value = values[i, 0]
+            prev_advantage = advantages[i, 0]
+
+        returns = values + advantages
+        advantages = (advantages - advantages.mean()) / advantages.std()
+
+        advantages, returns = advantages.to(self.device), returns.to(self.device)
+        return advantages, returns
 
 class OUNoise:
     """Ornstein-Uhlenbeck process."""

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Normal
 from torch.autograd import Variable
+from torch.distributions import Categorical
 
 import numpy as np
 
@@ -29,7 +30,7 @@ def init_weights(m):
 class Actor(nn.Module):
     """Actor (Policy) Model."""
 
-    def __init__(self, state_size, action_size, seed):
+    def __init__(self, state_size, action_size, seed, std = 0.0):
         """Initialize parameters and build model.
         Params
         ======
@@ -41,6 +42,9 @@ class Actor(nn.Module):
         """
         super(Actor, self).__init__()
         self.seed = torch.manual_seed(seed)
+        self.state_size = state_size
+        self.action_size = action_size
+        self.log_std = nn.Parameter(torch.ones(1, action_size) * std)
         FC1 = 50
         FC2 = 100
         FC3 = 100
@@ -101,14 +105,28 @@ class Actor(nn.Module):
         x = self.fc4(x)
         if debug:
             print("FC4", x.shape)
-        action = self.fc5(x).squeeze(0)
+        mu = self.fc5(x).unsqueeze_(0)
         if debug:
-            print("FC5", action.shape, "ACTION", action)    
+            print("FC5 - MU", mu.shape)
+
+        std = self.log_std.exp().expand_as(mu)
+
+        distribution = Normal(mu, std)
+        if debug:
+            print("DISTRIBUTION", distribution)
+
+        # if debug:
+        #     print("ACTION", action)
+        return distribution
+
+    def get_actions(self, distribution, n):
+        actions = distribution.sample().float().squeeze(0)
+        return actions
 
         # print(action)    
 
         # exit()
-        return action
+        # return action
 
 
 class Critic(nn.Module):
@@ -129,7 +147,7 @@ class Critic(nn.Module):
         FCS1 = 50
         FCS2 = 100
         FCS3 = 4
-        FC4 = 25
+        FC4 = 24
 
         self.fcs1 = nn.Sequential(
             nn.Linear(state_size, FCS1),
@@ -165,20 +183,21 @@ class Critic(nn.Module):
     def reset_parameters(self):
         self.apply(init_weights)
 
-    def forward(self, state, action, debug = False):
-        """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
+    def forward(self, states, actions, debug = False):
+        """Build a critic (value) network that maps (states, actions) pairs -> Q-values."""
         if debug:
-            print("STATE", state.shape)
-        xs = self.fcs1(state)
+            print("STATES", states.shape)
+        xs = self.fcs1(states)
         if debug:
             print("FSC1", xs.shape)
         xs = self.fcs2(xs)
         if debug:
             print("FSC2", xs.shape)
         xs = self.fcs3(xs)
+        # actions.squeeze_(0)
         if debug:
-            print("FSC3", xs.shape, "ACTION", action.shape)
-        x = torch.cat((xs, action), dim=1)
+            print("FSC3", xs.shape, "ACTION", actions)
+        x = torch.cat((xs, actions), dim=1)
         if debug:
             print("CAT", x.shape)
         x = self.fc4(x)

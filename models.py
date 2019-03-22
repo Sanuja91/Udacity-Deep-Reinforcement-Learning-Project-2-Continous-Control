@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Normal
 from torch.autograd import Variable
+from torch.distributions import Categorical
 
 import numpy as np
 
