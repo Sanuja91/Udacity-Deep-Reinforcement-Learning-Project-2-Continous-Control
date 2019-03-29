@@ -77,4 +77,15 @@ def update_csv(fileName, episode, average_score, max_score):
         df.at[episode] = np.array([average_score, max_score])
         df.to_csv(file_path)
 
+# Get important data from file into a Dataframe
+def open_json(relative_path):
+    path = relative_path
+    
+    file_object  = open(path, "r")
+    df = pd.read_json(file_object, orient='columns')
+    
+    if df.empty:
+        print("{} is empty".format(relative_path))
+        return 
 
+    return df

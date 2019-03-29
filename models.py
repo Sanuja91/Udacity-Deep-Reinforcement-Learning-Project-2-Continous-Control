@@ -2,9 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.distributions import Normal
 from torch.autograd import Variable
-from torch.distributions import Categorical
 
 import numpy as np
 
@@ -26,69 +24,81 @@ def init_weights(m):
         m.weight.data.uniform_(-w_bound, w_bound) # generating some random weights of order inversely proportional to the size of the tensor of weights
         m.bias.data.fill_(0) # initializing all the bias with zeros
 
+class ActorCritic(nn.Module):
+    def __init__(self, state_size, action_size, device, std = 0.0, dropout_rate = 0.5):
+        super(ActorCritic, self).__init__()
+        
+        self.device = device
+        self.state_size = state_size
+        self.action_size = action_size
 
-class Actor(nn.Module):
-    """Actor (Policy) Model."""
+        FC1 = 100
+        FC2 = 150
+        FC3 = 200
 
-    def __init__(self, state_size, action_size, seed, fc1_units=256, fc2_units=128):
-        """Initialize parameters and build model.
-        Params
-        ======
-            state_size (int): Dimension of each state
-            action_size (int): Dimension of each action
-            seed (int): Random seed
-            fc1_units (int): Number of nodes in first hidden layer
-            fc2_units (int): Number of nodes in second hidden layer
-        """
-        super(Actor, self).__init__()
-        self.seed = torch.manual_seed(seed)
-        self.fc1 = nn.Linear(state_size, fc1_units)
-        self.fc2 = nn.Linear(fc1_units, fc2_units)
-        self.fc3 = nn.Linear(fc2_units, action_size)
-        self.reset_parameters()
+        # Fully connected layers
+        self.fc1 = nn.Sequential(
+            nn.Linear(self.state_size, FC1),
+            nn.LayerNorm(FC1),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate)
+        )
 
-    def reset_parameters(self):
+        self.fc2 = nn.Sequential(
+            nn.Linear(FC1, FC2),
+            nn.LayerNorm(FC2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate)
+        )
+
+        self.fc3 = nn.Sequential(
+            nn.Linear(FC2, FC3),                             # add the weights from the previous timestep    
+            nn.LayerNorm(FC3),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate)
+        )
+        
+        self.critic = nn.Sequential(
+            nn.Linear(FC3, 1024),
+            nn.LayerNorm(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 1)
+        )
+        
+        self.actor = nn.Sequential(
+            nn.Linear(FC3, 1024),
+            nn.LayerNorm(1024),
+            nn.ReLU(),
+            nn.Linear(1024, self.action_size),
+        )
+
+        self.log_std = nn.Parameter(torch.ones(1, action_size) * std)
         self.apply(init_weights)
+    
+    def forward(self, states, debug = False):
+        if debug:
+            print("##### STATES", states.shape)
 
-    def forward(self, state):
-        """Build an actor (policy) network that maps states -> actions."""
-        x = F.relu(self.fc1(state))
-        x = F.relu(self.fc2(x))
-        x = torch.tanh(self.fc3(x))
-        print("ACTION VALUE", x)
-        exit()
-        return x
+        x = self.fc1(states)
+        if debug:
+            print("##### FC 1", x.shape)
 
+        x = self.fc2(x)
+        # x = torch.cat((x.squeeze(0), prev_action), dim = 0)        # concats prev_actions to x
+        # if debug:
+        #     print("##### FC 2", x.shape, "PREV ACTION", prev_action.shape)
 
-class Critic(nn.Module):
-    """Critic (Value) Model."""
+        x = self.fc3(x)
+        if debug:
+            print("##### FC 3", x.shape)
 
-    def __init__(self, state_size, action_size, seed, fcs1_units=256, fc2_units=128):
-        """Initialize parameters and build model.
-        Params
-        ======
-            state_size (int): Dimension of each state
-            action_size (int): Dimension of each action
-            seed (int): Random seed
-            fcs1_units (int): Number of nodes in the first hidden layer
-            fc2_units (int): Number of nodes in the second hidden layer
-        """
-        super(Critic, self).__init__()
-        self.seed = torch.manual_seed(seed)
-        self.fcs1 = nn.Linear(state_size, fcs1_units)
-        self.fc2 = nn.Linear(fcs1_units+action_size, fc2_units)
-        self.fc3 = nn.Linear(fc2_units, 1)
-        self.reset_parameters()
+        values = self.critic(x)
+        if debug:
+            print("##### CRITIC VALUE", values.shape)
 
-    def reset_parameters(self):
-        self.apply(init_weights)
+        mu = self.actor(x)
+        # mu.unsqueeze_(0)
+        if debug:
+            print("##### ACTOR MU", mu.shape)
 
-    def forward(self, state, action):
-        """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
-        xs = F.relu(self.fcs1(state))
-        x = torch.cat((xs, action), dim=1)
-        x = F.relu(self.fc2(x))
-        print("CRITIC VALUE", x)
-
-        return self.fc3(x)
- 
+        return mu, values

@@ -1,134 +1,122 @@
-import numpy as np
-import random
-import copy
-import os
-
-
-from models2 import Actor, Critic
-from memory import TrajectoryReplayBuffer
-
-import torch
-import torch.nn.functional as F
+import torch, os
+import torch.nn as nn
 import torch.optim as optim
+from torch.distributions import Normal
 
-GAMMA = 0.99
-TAU = 1e-2
-LR_ACTOR = 1e-4
-LR_CRITIC = 1e-4
-LEARNING_RATE_DECAY = 5e-8
-RANDOM_SEED = 4 
+class A2C_ACKTR():
+    def __init__(self, actor_critic, value_loss_coef, entropy_coef, lr = None, eps = None, alpha = None, max_grad_norm = None, acktr = False):
+        """Intializes A2C agent with option of converting to ACKTR"""
+        self.actor_critic = actor_critic
+        self.device = self.actor_critic.device
+        self.acktr = acktr
 
-class Actor_Crtic_Agent():        
-    def __init__(self, name, id, device, state_size, action_size, num_agents, buffer_size, batch_size, seed, max_trajectory_size, min_trajectory_size, load_agent = False):        
+        self.value_loss_coef = value_loss_coef
+        self.entropy_coef = entropy_coef
 
-        self.device = device
+        self.max_grad_norm = max_grad_norm
 
-        self.state_size = state_size
-        self.action_size = action_size
-        self.seed = random.seed(RANDOM_SEED)
-        self.num_agents = num_agents
-        self.name = name
-        self.id = id
-        self.best_reward = 0
-        self.memory = TrajectoryReplayBuffer(self.device, buffer_size, batch_size, seed, max_trajectory_size, min_trajectory_size, range(self.num_agents))
+        ## ENABLE ONCE ACKTR IS CONFIGURED PROPERLY
+        # if acktr:
+        #     self.optimizer = KFACOptimizer(actor_critic)
+        # else:
+        #     self.optimizer = optim.RMSprop(actor_critic.parameters(), lr, eps = eps, alpha = alpha)
+        self.optimizer = optim.RMSprop(actor_critic.parameters(), lr, eps = eps, alpha = alpha)
+
+
+    def act(self, states):
+        """Agent acts using the actor critic"""
+        mu, values = self.actor_critic(states)
+
+        std = self.actor_critic.log_std.exp().expand_as(mu)
+
+        dist = Normal(mu, std)
+        actions = dist.sample()
+
+        # print("ACTIONS | STATES", states.shape, "ACTIONS", actions.shape)
+
+        action_log_probs = dist.log_prob(actions)
+        dist_entropy = dist.entropy().mean()
         
-        # Hyperparameters
-        self.gamma = GAMMA
-        self.tau = TAU
-        self.lr_actor = LR_ACTOR
-        self.lr_critic = LR_CRITIC
-        self.weight_decay = LEARNING_RATE_DECAY
+        return values, actions, action_log_probs, dist_entropy 
 
-        # Actor Network (w/ Target Network)
-        self.actor = Actor(state_size, action_size, RANDOM_SEED).to(self.device)
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=self.lr_actor)
 
-        # Critic Network (w/ Target Network)
-        self.critic = Critic(state_size, action_size, RANDOM_SEED).to(self.device)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.lr_critic, weight_decay=self.weight_decay)
+    def evaluate_actions(self, states, actions):
+        """Evaluates the previous actions against the selected actions"""
+        mu, values = self.actor_critic(states)
 
-        if load_agent:
-            self.load_agent(self.name)
-
-        # Noise process
-        self.noise = OUNoise(action_size, RANDOM_SEED)
-    
-    def step(self, states, actions, rewards, next_states, dones, values, log_probs):
-        """Save experience in replay memory, and use random sample from buffer to learn."""
-        terminal_state_reached = self.memory.buffer_experiences(states, actions, rewards, next_states, dones, values, log_probs) 
+        std = self.actor_critic.log_std.exp().expand_as(mu)
         
-        if np.max(rewards) > self.best_reward:
-            self.best_reward = np.max(rewards) 
+        dist = Normal(mu, std)
 
-        # Buffers experiences and checks if terminal state has been reached and if enough batches are there to learn
-        if terminal_state_reached and self.memory.batch_passed:
-            self._learn()
+        # print("EVALUATIONS | STATES", states.shape, "ACTIONS", actions.shape)
+        action_log_probs = dist.log_prob(actions)
+        dist_entropy = dist.entropy().mean()
+
+        return values, action_log_probs, dist_entropy
 
 
-    def act(self, states, add_noise = True, train = True):
-        """Returns actions for given states as per current policy."""
-        states = torch.from_numpy(states).float().to(self.device)
-        if train:
-            self.actor.train()        
-            distribution = self.actor(states)
-        else:
-            self.actor.eval()
-            with torch.no_grad():
-                distribution = self.actor(states)
-            self.actor.train()
+    def update(self, rollouts):
+        """Learn from experience in rollouts"""
+        state_size = rollouts.states.size()[2:]
+        action_size = rollouts.actions.size()[-1]
 
-        actions = self.actor.get_actions(distribution, n = self.num_agents)
-        log_probs = distribution.log_prob(actions.squeeze(0)).squeeze(0).cpu().data.numpy()
+        num_steps, num_processes, _ = rollouts.rewards.size()
+
+        # values, action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions(
+        #     rollouts.states[:-1].view(-1, *state_size),
+        #     rollouts.masks[:-1].view(-1, 1),
+        #     rollouts.actions.view(-1, action_size))
+
+        values, action_log_probs, dist_entropy = self.evaluate_actions(
+            # rollouts.states[:-1].view(-1, *state_size),
+            rollouts.states.view(-1, *state_size),
+            # rollouts.masks[:-1].view(-1, 1),
+            rollouts.actions.view(-1, action_size))
+
+        values = values.view(num_steps, num_processes, 1)
+        # print("EVALUATION VALUES |", values.shape)
+        action_log_probs = action_log_probs.view(num_steps, num_processes, action_size)
+
+        advantages = rollouts.returns[:-1] - values
+        value_loss = advantages.pow(2).mean()
+        # print("VALUE LOSS", value_loss)
+        action_loss = -(advantages.detach() * action_log_probs).mean()
+        # print("ACTION LOSS", action_loss)
         
-        print("ACTIONS", actions.cpu().data.numpy().shape, "LOG PROBS", log_probs.shape)
-        values = self.critic(states, actions).cpu().data.numpy()
-    
-        actions = actions.cpu().data.numpy()
-        if add_noise:
-            noise = self.noise.sample()
-            actions += noise
-        return np.clip(actions, -1, 1), values, log_probs
 
-    def reset(self):
-        self.noise.reset()
+        ## ENABLE ONCE ACKTR IS CONFIGURED PROPERLY
+        # if self.acktr and self.optimizer.steps % self.optimizer.Ts == 0:
+        #     # Sampled fisher, see Martens 2014
+        #     self.actor_critic.zero_grad()
+        #     pg_fisher_loss = -action_log_probs.mean()
 
-    def _learn(self):
-        """Samples trajectories and learns from them"""
-        for states, actions, rewards, next_states, dones, values, log_probs in self.memory.sample_trajectories():
-            masks = 1 - dones
-            advantages, returns = self._estimate_advantages(rewards, masks, values, GAMMA, TAU, self.device)
+        #     value_noise = torch.randn(values.size())
+        #     if values.is_cuda:
+        #         value_noise = value_noise.cuda()
 
-            # (policy_net, value_net, optimizer_policy, optimizer_value, states, actions, returns, advantages, l2_reg):
-            
-            distribution = self.actor(states)
-            new_actions = self.actor.get_actions(distribution, n = self.num_agents)
-            # log_probs = distribution.log_prob(actions).squeeze(0)
-            # values = self.critic(states, actions).cpu().data.numpy()
+        #     sample_values = values + value_noise
+        #     vf_fisher_loss = -(values - sample_values.detach()).pow(2).mean()
 
-            """Update critic"""
-            values_pred = self.critic(states, new_actions)
-            value_loss = (values_pred - returns).pow(2).mean()
+        #     fisher_loss = pg_fisher_loss + vf_fisher_loss
+        #     self.optimizer.acc_stats = True
+        #     fisher_loss.backward(retain_graph=True)
+        #     self.optimizer.acc_stats = False
 
-            # weight decay
-            # for param in value_net.parameters():
-            #     value_loss += param.pow(2).sum() * l2_reg
-            self.critic_optimizer.zero_grad()
-            value_loss.backward()
-            self.critic_optimizer.step()
+        self.optimizer.zero_grad()
+        loss = value_loss * self.value_loss_coef + action_loss - dist_entropy * self.entropy_coef 
+        loss.backward()
 
-            """Update policy"""
-            # log_probs = policy_net.get_log_prob(states, actions)
-            policy_loss = -(log_probs * advantages).mean()
-            # policy_loss = -values_pred.mean()
-            self.actor_optimizer.zero_grad()
-            policy_loss.backward()
-            # torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 40)
-            self.actor_optimizer.step()     
+        if self.acktr == False:
+            nn.utils.clip_grad_norm_(self.actor_critic.parameters(),
+                                     self.max_grad_norm)
 
+        self.optimizer.step()
 
-    def save_agent(self, fileName):
+        return value_loss.item(), action_loss.item(), dist_entropy.item()
+
+    def save_agent(self, fileName, average_reward, last_timestep):
         """Save the checkpoint"""
-        checkpoint = {'actor_state_dict': self.actor_target.state_dict(),'critic_state_dict': self.critic_target.state_dict(), 'best_reward': self.best_reward}
+        checkpoint = {'state_dict': self.actor_critic.state_dict(), 'average_reward': average_reward, 'last_timestep': last_timestep}
         
         if not os.path.exists("checkpoints"):
             os.makedirs("checkpoints") 
@@ -144,57 +132,160 @@ class Actor_Crtic_Agent():
 
         if os.path.exists(filePath):
             checkpoint = torch.load(filePath, map_location = lambda storage, loc: storage)
-            self.actor.load_state_dict(checkpoint['actor_state_dict'])
-            self.actor_target.load_state_dict(checkpoint['actor_state_dict'])
-            self.critic.load_state_dict(checkpoint['critic_state_dict'])
-            self.critic_target.load_state_dict(checkpoint['critic_state_dict'])
-            self.best_reward = checkpoint['best_reward']
+            self.actor_critic.load_state_dict(checkpoint['state_dict'])
+            average_reward = checkpoint['average_reward']
+            last_timestep = checkpoint['last_timestep']
+            
 
-            print("Loading checkpoint - Last Best Reward {} (%) at Frame {} with LR {}".format((np.exp(self.best_reward) - 1) * 100, self.last_upgraded_frame, self.learning_rate))
+            print("Loading checkpoint - Last Best Reward {} (%) at Timestep {}".format(average_reward, last_timestep))
         else:
             print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(fileName))        
 
-    def _estimate_advantages(self, rewards, masks, values, gamma, tau, device):
-        """Calculates generalized advantage estimates] (GAE)"""
-        
-        rewards, masks, values = rewards.cpu(), masks.cpu(), values.cpu()
-        tensor_type = type(rewards)
-        deltas = tensor_type(rewards.size(0), 1)
-        advantages = tensor_type(rewards.size(0), 1)
 
-        prev_value = 0
-        prev_advantage = 0
-        for i in reversed(range(rewards.size(0))):
-            deltas[i] = rewards[i] + gamma * prev_value * masks[i] - values[i]
-            advantages[i] = deltas[i] + gamma * tau * prev_advantage * masks[i]
+## ENABLE ONCE ACKTR IS CONFIGURED PROPERLY
+# class KFACOptimizer(optim.Optimizer):
+#     def __init__(self, model, lr = 0.25, momentum = 0.9, stat_decay = 0.99, kl_clip = 0.001, damping = 1e-2, weight_decay = 0, fast_cnn = False, Ts = 1, Tf = 10):
+#         defaults = dict()
 
-            prev_value = values[i, 0]
-            prev_advantage = advantages[i, 0]
+#         def split_bias(module):
+#             for mname, child in module.named_children():
+#                 if hasattr(child, 'bias') and child.bias is not None:
+#                     module._modules[mname] = SplitBias(child)
+#                 else:
+#                     split_bias(child)
 
-        returns = values + advantages
-        advantages = (advantages - advantages.mean()) / advantages.std()
+#         split_bias(model)
 
-        advantages, returns = advantages.to(self.device), returns.to(self.device)
-        return advantages, returns
+#         super(KFACOptimizer, self).__init__(model.parameters(), defaults)
 
-class OUNoise:
-    """Ornstein-Uhlenbeck process."""
+#         self.known_modules = {'Linear', 'Conv2d', 'AddBias'}
 
-    def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2):
-        """Initialize parameters and noise process."""
-        self.mu = mu * np.ones(size)
-        self.theta = theta
-        self.sigma = sigma
-        self.seed = random.seed(seed)
-        self.reset()
+#         self.modules = []
+#         self.grad_outputs = {}
 
-    def reset(self):
-        """Reset the internal state (= noise) to mean (mu)."""
-        self.state = copy.copy(self.mu)
+#         self.model = model
+#         self._prepare_model()
 
-    def sample(self):
-        """Update internal state and return it as a noise sample."""
-        x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
-        self.state = x + dx
-        return self.state
+#         self.steps = 0
+
+#         self.m_aa, self.m_gg = {}, {}
+#         self.Q_a, self.Q_g = {}, {}
+#         self.d_a, self.d_g = {}, {}
+
+#         self.momentum = momentum
+#         self.stat_decay = stat_decay
+
+#         self.lr = lr
+#         self.kl_clip = kl_clip
+#         self.damping = damping
+#         self.weight_decay = weight_decay
+
+#         self.fast_cnn = fast_cnn
+
+#         self.Ts = Ts
+#         self.Tf = Tf
+
+#         self.optim = optim.SGD(
+#             model.parameters(),
+#             lr=self.lr * (1 - self.momentum),
+#             momentum=self.momentum)
+
+#     def _save_input(self, module, input):
+#         if torch.is_grad_enabled() and self.steps % self.Ts == 0:
+#             classname = module.__class__.__name__
+#             layer_info = None
+#             if classname == 'Conv2d':
+#                 layer_info = (module.kernel_size, module.stride,
+#                               module.padding)
+
+#             aa = compute_cov_a(input[0].data, classname, layer_info,
+#                                self.fast_cnn)
+
+#             # Initialize buffers
+#             if self.steps == 0:
+#                 self.m_aa[module] = aa.clone()
+
+#             update_running_stat(aa, self.m_aa[module], self.stat_decay)
+
+#     def _save_grad_output(self, module, grad_input, grad_output):
+#         # Accumulate statistics for Fisher matrices
+#         if self.acc_stats:
+#             classname = module.__class__.__name__
+#             layer_info = None
+#             if classname == 'Conv2d':
+#                 layer_info = (module.kernel_size, module.stride,
+#                               module.padding)
+
+#             gg = compute_cov_g(grad_output[0].data, classname, layer_info,
+#                                self.fast_cnn)
+
+#             # Initialize buffers
+#             if self.steps == 0:
+#                 self.m_gg[module] = gg.clone()
+
+#             update_running_stat(gg, self.m_gg[module], self.stat_decay)
+
+#     def _prepare_model(self):
+#         for module in self.model.modules():
+#             classname = module.__class__.__name__
+#             if classname in self.known_modules:
+#                 assert not ((classname in ['Linear', 'Conv2d']) and module.bias is not None), \
+#                                     "You must have a bias as a separate layer"
+
+#                 self.modules.append(module)
+#                 module.register_forward_pre_hook(self._save_input)
+#                 module.register_backward_hook(self._save_grad_output)
+
+#     def step(self):
+#         # Add weight decay
+#         if self.weight_decay > 0:
+#             for p in self.model.parameters():
+#                 p.grad.data.add_(self.weight_decay, p.data)
+
+#         updates = {}
+#         for i, m in enumerate(self.modules):
+#             assert len(list(m.parameters())
+#                        ) == 1, "Can handle only one parameter at the moment"
+#             classname = m.__class__.__name__
+#             p = next(m.parameters())
+
+#             la = self.damping + self.weight_decay
+
+#             if self.steps % self.Tf == 0:
+#                 # My asynchronous implementation exists, I will add it later.
+#                 # Experimenting with different ways to this in PyTorch.
+#                 self.d_a[m], self.Q_a[m] = torch.symeig(
+#                     self.m_aa[m], eigenvectors=True)
+#                 self.d_g[m], self.Q_g[m] = torch.symeig(
+#                     self.m_gg[m], eigenvectors=True)
+
+#                 self.d_a[m].mul_((self.d_a[m] > 1e-6).float())
+#                 self.d_g[m].mul_((self.d_g[m] > 1e-6).float())
+
+#             if classname == 'Conv2d':
+#                 p_grad_mat = p.grad.data.view(p.grad.data.size(0), -1)
+#             else:
+#                 p_grad_mat = p.grad.data
+
+#             v1 = self.Q_g[m].t() @ p_grad_mat @ self.Q_a[m]
+#             v2 = v1 / (
+#                 self.d_g[m].unsqueeze(1) * self.d_a[m].unsqueeze(0) + la)
+#             v = self.Q_g[m] @ v2 @ self.Q_a[m].t()
+
+#             v = v.view(p.grad.data.size())
+#             updates[p] = v
+
+#         vg_sum = 0
+#         for p in self.model.parameters():
+#             v = updates[p]
+#             vg_sum += (v * p.grad.data * self.lr * self.lr).sum()
+
+#         nu = min(1, math.sqrt(self.kl_clip / vg_sum))
+
+#         for p in self.model.parameters():
+#             v = updates[p]
+#             p.grad.data.copy_(v)
+#             p.grad.data.mul_(nu)
+
+#         self.optim.step()
+#         self.steps += 1
