@@ -114,9 +114,9 @@ class A2C_ACKTR():
 
         return value_loss.item(), action_loss.item(), dist_entropy.item()
 
-    def save_agent(self, fileName, average_reward, last_timestep):
+    def save_agent(self, fileName, average_reward, episode):
         """Save the checkpoint"""
-        checkpoint = {'state_dict': self.actor_critic.state_dict(), 'average_reward': average_reward, 'last_timestep': last_timestep}
+        checkpoint = {'state_dict': self.actor_critic.state_dict(), 'average_reward': average_reward, 'episode': episode}
         
         if not os.path.exists("checkpoints"):
             os.makedirs("checkpoints") 
@@ -134,10 +134,10 @@ class A2C_ACKTR():
             checkpoint = torch.load(filePath, map_location = lambda storage, loc: storage)
             self.actor_critic.load_state_dict(checkpoint['state_dict'])
             average_reward = checkpoint['average_reward']
-            last_timestep = checkpoint['last_timestep']
+            episode = checkpoint['episode']
             
 
-            print("Loading checkpoint - Last Best Reward {} (%) at Timestep {}".format(average_reward, last_timestep))
+            print("Loading checkpoint - Average Reward {} at Episode {}".format(average_reward, episode))
         else:
             print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(fileName))        
 

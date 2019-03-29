@@ -51,15 +51,11 @@ def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 
     scores_window = deque(maxlen=100)
     scores = np.zeros(num_agents)
     scores_episode = []
-
-    max_trajectory_size = max_t // 10
-    min_trajectory_size = 1
     
     actor_critic = ActorCritic(state_size, action_size, device).to(device)
     agent = A2C_ACKTR(actor_critic, value_loss_coef = CRITIC_DISCOUNT, entropy_coef = ENTROPY_BETA, lr = LEARNING_RATE, eps = EPS, alpha = ALPHA, max_grad_norm = MAX_GRAD_NORM, acktr = False)
     
     rollouts = SimpleRolloutStorage(NUM_STEPS, NUM_PROCESSES, state_size, action_size)
-    # rollouts.states[0].copy_(states)
     rollouts.to(device)
     
     num_updates = NUM_ENV_STEPS // NUM_STEPS // NUM_PROCESSES
@@ -77,7 +73,6 @@ def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 
 
         for step in range(NUM_STEPS):
             step_start = time.time()
-            # print("AGENT STEP", step, "TIMESTEP", timesteps)
             # Sample actions
             with torch.no_grad():
                 values, actions, action_log_probs, _  = agent.act(states)
@@ -101,6 +96,7 @@ def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 
             if np.any(dones):
                 print('\rEpisode {}\tScore: {:.2f}\tAverage Score: {:.2f}\tMin Score: {:.2f}\tMax Score: {:.2f}'.format(episode, score, np.mean(scores_window), np.min(scores), np.max(scores)), end="\n")
                 update_csv(agent_name, episode, np.mean(scores_window), np.max(scores))
+                agent.save_agent(agent_name, score, episode)
                 episode += 1
                 break 
 
@@ -117,77 +113,4 @@ def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 
         scores_window.append(score)       # save most recent score
         scores_episode.append(score)
 
-        # print('\Timestep {}\tScore: {:.2f}\tAverage Score: {:.2f}\tMax Score: {:.2f}'.format(timesteps, score, np.mean(scores_window), np.max(scores)), end="\n")
-        
-        agent.save_agent(agent_name, score, timesteps)
-        
     return scores_episode
-
-    ##############################################################
-
-            
-
-
-        # train_start = time.time()
-        # for i_episode in range(1, n_episodes + 1):
-        #     env_info = env.reset(train_mode = True)[brain_name]
-        #     states = env_info.vector_observations
-        #     episode_start = time.time()
-
-        #     # agent.reset()
-        #     scores = np.zeros(num_agents)
-
-        #     for t in range(max_t):
-        #         timestep_start = time.time()
-        #         states = torch.from_numpy(states).to(device).float()
-        #         values, actions, action_log_probs, _  = agent.act(states)
-        #         env_info = env.step(actions.cpu().numpy())[brain_name]       # send the action to the environment
-        #         next_states = env_info.vector_observations     # get the next state
-        #         rewards = env_info.rewards                     # get the reward
-        #         rewards_tensor = torch.from_numpy(np.array(rewards)).to(device).float().unsqueeze(1)
-        #         dones = env_info.local_done  
-        #         masks = torch.from_numpy(1 - np.array(dones).astype(int)).to(device).float().unsqueeze(1) 
-
-        #         # print("################ WARNING BAD MASKS HAVE BEEN PUT AS A COPY OF MASKS")
-
-        #         # states, actions, action_log_probs, value_preds, rewards, masks, bad_masks
-        #         rollouts.insert(states, actions, action_log_probs, values, rewards_tensor, masks, masks)
-
-        #         # if multiple_agents:
-        #         #     agent.step(states, actions, rewards, next_states, dones, values, action_log_probs)
-        #         # else:
-        #         #     agent.step(states, np.expand_dims(actions, axis=0), rewards, next_states, dones, values, action_log_probs)
-
-        #         agent.update(rollouts)
-        #         states = next_states
-        #         scores += rewards
-        #         if t % 20:
-        #             print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'
-        #                   .format(t, np.mean(scores), np.min(scores), np.max(scores)), end="") 
-        #         if np.any(dones):
-        #             break 
-
-        #     score = np.mean(scores)
-        #     scores_window.append(score)       # save most recent score
-        #     scores_episode.append(score)
-
-        #     print('\rEpisode {}\tScore: {:.2f}\tAverage Score: {:.2f}\tMax Score: {:.2f}'.format(i_episode, score, np.mean(scores_window), np.max(scores)), end="\n")
-        #     update_csv(agent_name, i_episode, np.mean(scores_window), np.max(scores))
-        #     # agent.save_agent(agent_name)
-
-        #     # Early stop
-        #     if i_episode == 100:
-        #         return scores_episode
-
-        #     if i_episode % 100 == 0:
-        #         print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
-        #     if np.mean(scores_window)>=30.0:
-        #         print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(i_episode-100, np.mean(scores_window)))
-        #         # agent.save_agent(agent_name + "Complete")
-        #         break
-
-        #     print("\n## Episode completed in {} seconds ##\n".format(round((time.time() - episode_start), 2)))
-
-        # return scores_episode
-    
-
