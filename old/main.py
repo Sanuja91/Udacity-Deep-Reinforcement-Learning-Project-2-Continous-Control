@@ -4,7 +4,10 @@ import matplotlib.pyplot as plt
 from utilities import initialize_env, get_device
 from a2c import actor_critic
 
-AGENT_NAME = "FC SEQ MED - BASIC REPLAY - BATCH DDPG"
+### ADD LEARNING RATE DECAY
+
+AGENT_NAME = "PROPER A2C"
+TRAIN_MODE = True
 MULTI = True   # Multiple agents or single
 
 if MULTI:
@@ -12,7 +15,8 @@ if MULTI:
 else:
     AGENT_NAME = "SINGLE AGENT - " + AGENT_NAME
 
-scores = actor_critic(AGENT_NAME, multiple_agents = MULTI)
+
+scores = actor_critic(AGENT_NAME, multiple_agents = MULTI, load_agent = True, train_mode = TRAIN_MODE)
 
 # plot the scores
 fig = plt.figure()

@@ -1,12 +1,12 @@
-import torch
+import torch, math
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.distributions import Normal
 from torch.autograd import Variable
-from torch.distributions import Categorical
 
 import numpy as np
+
+
 
 # Initializing the weights of the neural network in an optimal way for the learning
 def init_weights(m):
@@ -26,69 +26,118 @@ def init_weights(m):
         m.weight.data.uniform_(-w_bound, w_bound) # generating some random weights of order inversely proportional to the size of the tensor of weights
         m.bias.data.fill_(0) # initializing all the bias with zeros
 
+class ActorCritic(nn.Module):
+    def __init__(self, state_size, action_size, device, std = 0.0, dropout_rate = 0.5):
+        super(ActorCritic, self).__init__()
+        
+        self.device = device
+        self.state_size = state_size
+        self.action_size = action_size
 
-class Actor(nn.Module):
-    """Actor (Policy) Model."""
+        FC1 = 128
+        FC2 = 128
+        FC3 = 50
 
-    def __init__(self, state_size, action_size, seed, fc1_units=256, fc2_units=128):
-        """Initialize parameters and build model.
-        Params
-        ======
-            state_size (int): Dimension of each state
-            action_size (int): Dimension of each action
-            seed (int): Random seed
-            fc1_units (int): Number of nodes in first hidden layer
-            fc2_units (int): Number of nodes in second hidden layer
-        """
-        super(Actor, self).__init__()
-        self.seed = torch.manual_seed(seed)
-        self.fc1 = nn.Linear(state_size, fc1_units)
-        self.fc2 = nn.Linear(fc1_units, fc2_units)
-        self.fc3 = nn.Linear(fc2_units, action_size)
-        self.reset_parameters()
+        # Fully connected layers
+        self.fc1 = nn.Sequential(
+            nn.Linear(self.state_size, FC1),
+            nn.LayerNorm(FC1),
+            nn.ELU(),
+            # # nn.Dropout(dropout_rate)
+        )
 
-    def reset_parameters(self):
-        self.apply(init_weights)
+        self.fc2 = nn.Sequential(
+            nn.Linear(FC1, FC2),
+            nn.LayerNorm(FC2),
+            nn.ELU(),
+            # # nn.Dropout(dropout_rate)
+        )
 
-    def forward(self, state):
-        """Build an actor (policy) network that maps states -> actions."""
-        x = F.relu(self.fc1(state))
-        x = F.relu(self.fc2(x))
-        x = torch.tanh(self.fc3(x))
-        print("ACTION VALUE", x)
-        exit()
-        return x
+        self.fc3 = nn.Sequential(
+            nn.Linear(FC2, FC3),                             # add the weights from the previous timestep    
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            # # nn.Dropout(dropout_rate)
+        )
+        
+        self.critic = nn.Sequential(
+            nn.Linear(FC3, FC3),
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            nn.Linear(FC3, FC3),
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            nn.Linear(FC3, 1)
+        )
+        
+        self.actor = nn.Sequential(
+            nn.Linear(FC3, FC3),
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            nn.Linear(FC3, FC3),
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            # NoisyFactorizedLinear(FC3, self.action_size),
+            nn.Linear(FC3, self.action_size),
+            nn.LayerNorm(self.action_size),
+            nn.ELU(),
+        )
 
+        self.log_std = nn.Parameter(torch.ones(1, action_size) * std)
+        # self.apply(init_weights)
+    
+    def forward(self, states, debug = False):
+        if debug:
+            print("##### STATES", states.shape)
 
-class Critic(nn.Module):
-    """Critic (Value) Model."""
+        x = self.fc1(states)
+        if debug:
+            print("##### FC 1", x.shape)
 
-    def __init__(self, state_size, action_size, seed, fcs1_units=256, fc2_units=128):
-        """Initialize parameters and build model.
-        Params
-        ======
-            state_size (int): Dimension of each state
-            action_size (int): Dimension of each action
-            seed (int): Random seed
-            fcs1_units (int): Number of nodes in the first hidden layer
-            fc2_units (int): Number of nodes in the second hidden layer
-        """
-        super(Critic, self).__init__()
-        self.seed = torch.manual_seed(seed)
-        self.fcs1 = nn.Linear(state_size, fcs1_units)
-        self.fc2 = nn.Linear(fcs1_units+action_size, fc2_units)
-        self.fc3 = nn.Linear(fc2_units, 1)
-        self.reset_parameters()
+        x = self.fc2(x)
+        if debug:
+            print("##### FC 2", x.shape)
 
-    def reset_parameters(self):
-        self.apply(init_weights)
+        x = self.fc3(x)
+        if debug:
+            print("##### FC 3", x.shape)
 
-    def forward(self, state, action):
-        """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
-        xs = F.relu(self.fcs1(state))
-        x = torch.cat((xs, action), dim=1)
-        x = F.relu(self.fc2(x))
-        print("CRITIC VALUE", x)
+        values = self.critic(x)
+        if debug:
+            print("##### CRITIC VALUE", values.shape)
 
-        return self.fc3(x)
- 
+        mu = self.actor(x)
+
+        if debug:
+            print("##### ACTOR MU", mu.shape)
+
+        return mu, values
+
+# class NoisyFactorizedLinear(nn.Linear):
+#     """
+#     NoisyNet layer with factorized gaussian noise
+#     N.B. nn.Linear already initializes weight and bias to
+#     """
+#     def __init__(self, in_features, out_features, sigma_zero=0.4, bias=True):
+#         super(NoisyFactorizedLinear, self).__init__(in_features, out_features, bias=bias)
+#         sigma_init = sigma_zero / math.sqrt(in_features)
+#         self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
+#         self.register_buffer("epsilon_input", torch.zeros(1, in_features))
+#         self.register_buffer("epsilon_output", torch.zeros(out_features, 1))
+#         if bias:
+#             self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
+
+#     def forward(self, input):
+#         torch.randn(self.epsilon_input.size(), out=self.epsilon_input)
+#         torch.randn(self.epsilon_output.size(), out=self.epsilon_output)
+
+#         func = lambda x: torch.sign(x) * torch.sqrt(torch.abs(x))
+#         eps_in = func(self.epsilon_input)
+#         eps_out = func(self.epsilon_output)
+
+#         bias = self.bias
+#         if bias is not None:
+#             bias = bias + self.sigma_bias * Variable(eps_out.t())
+#         noise_v = Variable(torch.mul(eps_in, eps_out))
+
+#         return F.linear(input, self.weight + self.sigma_weight * noise_v, bias)
