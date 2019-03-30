@@ -11,13 +11,13 @@ from utilities import initialize_env, get_device, update_csv
 BUFFER_SIZE = int(1e5)  
 BATCH_SIZE = 10       
 RANDOM_SEED = 4
-LEARNING_RATE = 1e-4
-LEARNING_RATE_DECAY = 5e-8
+LEARNING_RATE = 1e-5
+LEARNING_RATE_DECAY = 0.95
 ENTROPY_BETA = 0.01
 CRITIC_DISCOUNT = 0.5
 EPS = 1e-5
 ALPHA = 0.99
-MAX_GRAD_NORM = 0.5
+MAX_GRAD_NORM = 5
 NUM_PROCESSES = 20
 NUM_ENV_STEPS = 10000000
 NUM_STEPS = 5
@@ -26,12 +26,12 @@ PPO_EPOCH = 4
 PPO_CLIP = 0.2
 NUM_MINI_BATCH = 32
 GAMMA = 0.99
-USE_GAE = False
+USE_GAE = True
 GAE_LAMBDA = 0.95
-MAX_EPISODES = 100
+MAX_EPISODES = 2000
+ACTION_BOUNDS = [-1, 1]
 
-
-def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 1000):
+def actor_critic(agent_name, multiple_agents = False, load_agent = False, n_episodes = 300, max_t = 1000, train_mode = True):
     """ Batch processed the states in a single forward pass with a single neural network
     Params
     ======
@@ -42,18 +42,18 @@ def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 
     """
     start = time.time()
     device = get_device()
-    env, env_info, states, state_size, action_size, brain_name, num_agents = initialize_env(multiple_agents)
+    env, env_info, states, state_size, action_size, brain_name, num_agents = initialize_env(multiple_agents, train_mode)
     states = torch.from_numpy(states).to(device).float()
     
     NUM_PROCESSES = num_agents
+
     # Scores is Episode Rewards
     scores = np.zeros(num_agents)
     scores_window = deque(maxlen=100)
-    scores = np.zeros(num_agents)
     scores_episode = []
     
     actor_critic = ActorCritic(state_size, action_size, device).to(device)
-    agent = A2C_ACKTR(actor_critic, value_loss_coef = CRITIC_DISCOUNT, entropy_coef = ENTROPY_BETA, lr = LEARNING_RATE, eps = EPS, alpha = ALPHA, max_grad_norm = MAX_GRAD_NORM, acktr = False)
+    agent = A2C_ACKTR(agent_name, actor_critic, value_loss_coef = CRITIC_DISCOUNT, entropy_coef = ENTROPY_BETA, lr = LEARNING_RATE, eps = EPS, alpha = ALPHA, max_grad_norm = MAX_GRAD_NORM, acktr = False, load_agent = load_agent)
     
     rollouts = SimpleRolloutStorage(NUM_STEPS, NUM_PROCESSES, state_size, action_size)
     rollouts.to(device)
@@ -77,10 +77,14 @@ def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 
             with torch.no_grad():
                 values, actions, action_log_probs, _  = agent.act(states)
 
+
+            # clipped_actions = np.clip(actions.cpu().numpy(), *ACTION_BOUNDS)
             env_info = env.step(actions.cpu().numpy())[brain_name]       # send the action to the environment 
             next_states = env_info.vector_observations     # get the next state
             rewards = env_info.rewards                     # get the reward
-            rewards_tensor = torch.from_numpy(np.array(rewards)).to(device).float().unsqueeze(1)
+            rewards_tensor = np.array(env_info.rewards)
+            rewards_tensor[rewards_tensor == 0] = -0.001
+            rewards_tensor = torch.from_numpy(rewards_tensor).to(device).float().unsqueeze(1)
             dones = env_info.local_done  
             masks = torch.from_numpy(1 - np.array(dones).astype(int)).to(device).float().unsqueeze(1) 
 
@@ -89,6 +93,7 @@ def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 
             next_states = torch.from_numpy(next_states).to(device).float()
             states = next_states
             scores += rewards
+            # print(rewards)
 
             if timesteps % 100:
                 print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'.format(timesteps, np.mean(scores), np.min(scores), np.max(scores)), end="") 
@@ -98,6 +103,7 @@ def actor_critic(agent_name, multiple_agents = False, n_episodes = 300, max_t = 
                 update_csv(agent_name, episode, np.mean(scores_window), np.max(scores))
                 agent.save_agent(agent_name, score, episode)
                 episode += 1
+                scores = np.zeros(num_agents)
                 break 
 
             timesteps += 1

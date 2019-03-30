@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.distributions import Normal
 
 class A2C_ACKTR():
-    def __init__(self, actor_critic, value_loss_coef, entropy_coef, lr = None, eps = None, alpha = None, max_grad_norm = None, acktr = False):
+    def __init__(self, name, actor_critic, value_loss_coef, entropy_coef, lr = None, eps = None, alpha = None, max_grad_norm = None, acktr = False, load_agent = False):
         """Intializes A2C agent with option of converting to ACKTR"""
         self.actor_critic = actor_critic
         self.device = self.actor_critic.device
@@ -14,6 +14,10 @@ class A2C_ACKTR():
         self.entropy_coef = entropy_coef
 
         self.max_grad_norm = max_grad_norm
+        self.name = name
+
+        if load_agent:
+            self.load_agent(name)
 
         ## ENABLE ONCE ACKTR IS CONFIGURED PROPERLY
         # if acktr:
@@ -31,21 +35,21 @@ class A2C_ACKTR():
 
         dist = Normal(mu, std)
         actions = dist.sample()
-
+        
         # print("ACTIONS | STATES", states.shape, "ACTIONS", actions.shape)
 
         action_log_probs = dist.log_prob(actions)
+        
         dist_entropy = dist.entropy().mean()
         
-        return values, actions, action_log_probs, dist_entropy 
+        return values, torch.clamp(actions, -1, 1), action_log_probs, dist_entropy 
 
 
     def evaluate_actions(self, states, actions):
         """Evaluates the previous actions against the selected actions"""
         mu, values = self.actor_critic(states)
-
         std = self.actor_critic.log_std.exp().expand_as(mu)
-        
+        # std = nn.Parameter(torch.ones(1, action_dim))
         dist = Normal(mu, std)
 
         # print("EVALUATIONS | STATES", states.shape, "ACTIONS", actions.shape)
@@ -81,7 +85,7 @@ class A2C_ACKTR():
         value_loss = advantages.pow(2).mean()
         # print("VALUE LOSS", value_loss)
         action_loss = -(advantages.detach() * action_log_probs).mean()
-        # print("ACTION LOSS", action_loss)
+        
         
 
         ## ENABLE ONCE ACKTR IS CONFIGURED PROPERLY
@@ -104,12 +108,15 @@ class A2C_ACKTR():
 
         self.optimizer.zero_grad()
         loss = value_loss * self.value_loss_coef + action_loss - dist_entropy * self.entropy_coef 
+        # loss = value_loss * self.value_loss_coef + action_loss
         loss.backward()
+
+        # print("VALUE LOSS", value_loss, "ACTION LOSS", action_loss, "LOSS", loss)
 
         if self.acktr == False:
             nn.utils.clip_grad_norm_(self.actor_critic.parameters(),
                                      self.max_grad_norm)
-
+    
         self.optimizer.step()
 
         return value_loss.item(), action_loss.item(), dist_entropy.item()
@@ -136,7 +143,6 @@ class A2C_ACKTR():
             average_reward = checkpoint['average_reward']
             episode = checkpoint['episode']
             
-
             print("Loading checkpoint - Average Reward {} at Episode {}".format(average_reward, episode))
         else:
             print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(fileName))        

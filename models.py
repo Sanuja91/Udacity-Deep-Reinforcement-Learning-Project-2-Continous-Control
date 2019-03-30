@@ -6,6 +6,8 @@ from torch.autograd import Variable
 
 import numpy as np
 
+
+
 # Initializing the weights of the neural network in an optimal way for the learning
 def init_weights(m):
     classname = m.__class__.__name__ # python trick that will look for the type of connection in the object "m" (convolution or full connection)
@@ -32,48 +34,56 @@ class ActorCritic(nn.Module):
         self.state_size = state_size
         self.action_size = action_size
 
-        FC1 = 100
-        FC2 = 150
-        FC3 = 200
+        FC1 = 128
+        FC2 = 128
+        FC3 = 50
 
         # Fully connected layers
         self.fc1 = nn.Sequential(
             nn.Linear(self.state_size, FC1),
             nn.LayerNorm(FC1),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate)
+            nn.ELU(),
+            # # nn.Dropout(dropout_rate)
         )
 
         self.fc2 = nn.Sequential(
             nn.Linear(FC1, FC2),
             nn.LayerNorm(FC2),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate)
+            nn.ELU(),
+            # # nn.Dropout(dropout_rate)
         )
 
         self.fc3 = nn.Sequential(
             nn.Linear(FC2, FC3),                             # add the weights from the previous timestep    
             nn.LayerNorm(FC3),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate)
+            nn.ELU(),
+            # # nn.Dropout(dropout_rate)
         )
         
         self.critic = nn.Sequential(
-            nn.Linear(FC3, 1024),
-            nn.LayerNorm(1024),
-            nn.ReLU(),
-            nn.Linear(1024, 1)
+            nn.Linear(FC3, FC3),
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            nn.Linear(FC3, FC3),
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            nn.Linear(FC3, 1)
         )
         
         self.actor = nn.Sequential(
-            nn.Linear(FC3, 1024),
-            nn.LayerNorm(1024),
-            nn.ReLU(),
-            nn.Linear(1024, self.action_size),
+            nn.Linear(FC3, FC3),
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            nn.Linear(FC3, FC3),
+            nn.LayerNorm(FC3),
+            nn.ELU(),
+            nn.Linear(FC3, self.action_size),
+            nn.LayerNorm(self.action_size),
+            nn.ELU(),
         )
 
         self.log_std = nn.Parameter(torch.ones(1, action_size) * std)
-        self.apply(init_weights)
+        # self.apply(init_weights)
     
     def forward(self, states, debug = False):
         if debug:
@@ -84,9 +94,8 @@ class ActorCritic(nn.Module):
             print("##### FC 1", x.shape)
 
         x = self.fc2(x)
-        # x = torch.cat((x.squeeze(0), prev_action), dim = 0)        # concats prev_actions to x
-        # if debug:
-        #     print("##### FC 2", x.shape, "PREV ACTION", prev_action.shape)
+        if debug:
+            print("##### FC 2", x.shape)
 
         x = self.fc3(x)
         if debug:
@@ -97,7 +106,7 @@ class ActorCritic(nn.Module):
             print("##### CRITIC VALUE", values.shape)
 
         mu = self.actor(x)
-        # mu.unsqueeze_(0)
+
         if debug:
             print("##### ACTOR MU", mu.shape)
 

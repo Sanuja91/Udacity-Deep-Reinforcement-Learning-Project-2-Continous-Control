@@ -3,7 +3,7 @@ import numpy as np
 import torch, time, os
 import pandas as pd
 
-def initialize_env(multiple_agents = False):
+def initialize_env(multiple_agents = False, train_mode = True):
     """Initialies the environment 
     Params
     ==========
@@ -19,7 +19,7 @@ def initialize_env(multiple_agents = False):
     brain = env.brains[brain_name]
 
     # reset the environment
-    env_info = env.reset(train_mode = True)[brain_name]
+    env_info = env.reset(train_mode = train_mode)[brain_name]
 
     num_agents = len(env_info.agents)
 
