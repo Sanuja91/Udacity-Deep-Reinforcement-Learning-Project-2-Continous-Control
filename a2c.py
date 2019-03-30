@@ -99,6 +99,7 @@ def actor_critic(agent_name, multiple_agents = False, load_agent = False, n_epis
 
             if timesteps % 100:
                 print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'.format(timesteps, np.mean(scores), np.min(scores), np.max(scores)), end="") 
+                agent.add_noise()
             
             if np.any(dones):
                 print('\rEpisode {}\tScore: {:.2f}\tAverage Score: {:.2f}\tMin Score: {:.2f}\tMax Score: {:.2f}'.format(episode, score, np.mean(scores_window), np.min(scores), np.max(scores)), end="\n")

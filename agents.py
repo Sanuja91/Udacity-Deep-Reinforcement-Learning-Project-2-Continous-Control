@@ -147,6 +147,12 @@ class A2C_ACKTR():
         else:
             print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(fileName))        
 
+    
+    def add_noise(self):
+        """Adds noise to the weights of the agent"""
+        with torch.no_grad():
+            for param in self.actor_critic.parameters():
+                param.add_(torch.randn(param.size()) * 0.1)
 
 ## ENABLE ONCE ACKTR IS CONFIGURED PROPERLY
 # class KFACOptimizer(optim.Optimizer):
