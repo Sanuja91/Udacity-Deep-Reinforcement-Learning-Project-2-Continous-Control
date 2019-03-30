@@ -11,7 +11,7 @@ from utilities import initialize_env, get_device, update_csv
 BUFFER_SIZE = int(1e5)  
 BATCH_SIZE = 10       
 RANDOM_SEED = 4
-LEARNING_RATE = 1e-5
+LEARNING_RATE = 1e-4
 LEARNING_RATE_DECAY = 0.95
 ENTROPY_BETA = 0.01
 CRITIC_DISCOUNT = 0.5
@@ -29,6 +29,7 @@ GAMMA = 0.99
 USE_GAE = True
 GAE_LAMBDA = 0.95
 MAX_EPISODES = 2000
+NEGATIVE_REWARD = -0.001
 ACTION_BOUNDS = [-1, 1]
 
 def actor_critic(agent_name, multiple_agents = False, load_agent = False, n_episodes = 300, max_t = 1000, train_mode = True):
@@ -73,6 +74,7 @@ def actor_critic(agent_name, multiple_agents = False, load_agent = False, n_epis
 
         for step in range(NUM_STEPS):
             step_start = time.time()
+
             # Sample actions
             with torch.no_grad():
                 values, actions, action_log_probs, _  = agent.act(states)
@@ -83,7 +85,7 @@ def actor_critic(agent_name, multiple_agents = False, load_agent = False, n_epis
             next_states = env_info.vector_observations     # get the next state
             rewards = env_info.rewards                     # get the reward
             rewards_tensor = np.array(env_info.rewards)
-            rewards_tensor[rewards_tensor == 0] = -0.001
+            rewards_tensor[rewards_tensor == 0] = NEGATIVE_REWARD
             rewards_tensor = torch.from_numpy(rewards_tensor).to(device).float().unsqueeze(1)
             dones = env_info.local_done  
             masks = torch.from_numpy(1 - np.array(dones).astype(int)).to(device).float().unsqueeze(1) 
