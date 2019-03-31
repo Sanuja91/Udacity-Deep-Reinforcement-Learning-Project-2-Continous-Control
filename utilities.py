@@ -40,6 +40,17 @@ def initialize_env(multiple_agents = False, train_mode = True):
 
     return env, env_info, states, state_size, action_size, brain_name, num_agents
 
+class Seeds(object):
+    def __init__(self, path):
+        self.seeds = pd.read_csv(path, header=None, names=['seed'], index_col=None, dtype=np.int32)
+        self.idx = 0
+        
+    def next(self):
+        self.idx = self.idx + 1
+        seed = self.seeds.seed.iloc[self.idx-1]
+        return seed
+
+
 # Checks if GPU is available else runs on CPU
 def get_device():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -5,7 +5,7 @@ import torch.nn as nn
 
 import numpy as np
 
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def hidden_init(layer):
     fan_in = layer.weight.data.size()[0]
@@ -43,7 +43,7 @@ class Actor(nn.Module):
         self.norms = []
         if self.batchnorm:
             for linear in self.hidden_layers:
-                self.norms.append(nn.LayerNorm(linear.in_features))
+                self.norms.append(nn.LayerNorm(linear.in_features).to(device))
         
         self.reset_parameters()
 
@@ -87,10 +87,10 @@ class Critic(nn.Module):
         
         hidden_layers = params['hidden_layers'].copy()
 
-        self.norms = [nn.LayerNorm(self.state_size)]
+        self.norms = [nn.LayerNorm(self.state_size).to(device)]
         if self.batchnorm:
             for hidden_neurons in hidden_layers:
-                self.norms.append(nn.LayerNorm(hidden_neurons))
+                self.norms.append(nn.LayerNorm(hidden_neurons).to(device))
                 
         self.hidden_layers = nn.ModuleList([nn.Linear(self.state_size, hidden_layers[0])])
         

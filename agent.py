@@ -10,9 +10,9 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from . model import Actor, Critic
+from models import Actor, Critic
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Agent(object):
     """Interacts with and learns from the environment."""
@@ -125,8 +125,9 @@ class DDPGAgent(Agent):
         next_state = torch.from_numpy(next_states[self.idx]).float().unsqueeze(0).to(device)
         state = torch.from_numpy(states[self.idx]).float().unsqueeze(0).to(device)
         
+        # print("\nSTATE\n", state, "\nACTION\n", actions[self.idx], "\nREWARD\n", rewards[self.idx], "\nNEXT STATE\n", next_state, "\nDONE\n", dones[self.idx])
         # Save experience / reward
-        self.memory.add(state, actions[self.idx], rewards[self.idx], next_state, dones[self.idx])
+        self.memory.add(state.cpu(), actions[self.idx], rewards[self.idx], next_state.cpu(), dones[self.idx])
 
     def act(self, state, add_noise=True):
         """Returns actions for given state as per current policy."""
@@ -144,13 +145,13 @@ class DDPGAgent(Agent):
 
     def learn(self):        
         # Learn every UPDATE_EVERY time steps.
-        self.t_step = (self.t_step + 1) % self.update_every
-        if self.t_step == 0:
+        self.t_step += 1
+        # self.t_step = (self.t_step + 1) % self.update_every
+        if self.t_step % self.update_every == 0:
             # If enough samples are available in memory, get random subset and learn
             if self.memory.ready():
-                for i in range(self.num_agents):
-                    experiences = self.memory.sample()
-                    self.learn_(experiences)
+                experiences = self.memory.sample()
+                self.learn_(experiences)
         
     def learn_(self, experiences):
         """Update policy and value parameters using given batch of experience tuples.

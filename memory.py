@@ -11,7 +11,6 @@ EPSILON = 1e-5          # small number for numeric stability
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-
 class ReplayBuffer(object):
     """
     Abstract base class for replay buffers.
@@ -39,7 +38,6 @@ class ReplayBuffer(object):
         """
         pass
     
-
 class UniformReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
 
