@@ -6,6 +6,7 @@ import numpy as np
 
 import torch
 
+
 def train(agents, params):
     """Training Loop for value-based RL methods.
     Params
@@ -65,7 +66,7 @@ def train(agents, params):
         scores_episode.append(score)
         scores_window.append(score)       # save most recent score
 
-        print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores_window), np.min(scores_window), np.max(scores_window), time.time() - timestep), end="")
+        print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores_window), np.min(scores_window), np.max(scores_window), time.time() - timestep), end="\n")
         if i_episode % 100 == 0:
             toc = time.time()
             print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores_window), np.min(scores_window), np.max(scores_window), toc - tic), end="")
