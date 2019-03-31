@@ -52,6 +52,7 @@ def train(agents, params):
                 a.learn()
             
             # TODO Make this happen parallely 
+            
             scores += rewards                              # update the scores
             states = next_states                           # roll over the state to next time step
             if np.any(dones):                              # exit loop if episode finished
