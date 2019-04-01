@@ -107,8 +107,8 @@ class A2C_ACKTR():
         #     self.optimizer.acc_stats = False
 
         self.optimizer.zero_grad()
-        # loss = value_loss * self.value_loss_coef + action_loss - dist_entropy * self.entropy_coef # Remove entropy because of addition of parameter noise for exploration
-        loss = value_loss * self.value_loss_coef + action_loss
+        loss = value_loss * self.value_loss_coef + action_loss - dist_entropy * self.entropy_coef # Remove entropy because of addition of parameter noise for exploration
+        # loss = value_loss * self.value_loss_coef + action_loss
         loss.backward()
 
         # print("VALUE LOSS", value_loss, "ACTION LOSS", action_loss, "LOSS", loss)
@@ -121,7 +121,7 @@ class A2C_ACKTR():
 
         return value_loss.item(), action_loss.item(), dist_entropy.item()
 
-    def save_agent(self, fileName, average_reward, episode):
+    def save_agent(self, fileName, average_reward, episode, save_history = False):
         """Save the checkpoint"""
         checkpoint = {'state_dict': self.actor_critic.state_dict(), 'average_reward': average_reward, 'episode': episode}
         
@@ -132,6 +132,11 @@ class A2C_ACKTR():
         # print("\nSaving checkpoint\n")
         torch.save(checkpoint, filePath)
 
+        if save_history:
+            filePath = 'checkpoints\\' + self.name + '_' + str(episode) + '.pth'
+            torch.save(checkpoint, filePath)
+
+
     def load_agent(self, fileName):
         """Load the checkpoint"""
         # print("\nLoading checkpoint\n")
@@ -140,10 +145,10 @@ class A2C_ACKTR():
         if os.path.exists(filePath):
             checkpoint = torch.load(filePath, map_location = lambda storage, loc: storage)
             self.actor_critic.load_state_dict(checkpoint['state_dict'])
-            average_reward = checkpoint['average_reward']
-            episode = checkpoint['episode']
+            self.average_reward = checkpoint['average_reward']
+            self.episode = checkpoint['episode']
             
-            print("Loading checkpoint - Average Reward {} at Episode {}".format(average_reward, episode))
+            print("Loading checkpoint - Average Reward {} at Episode {}".format(self.average_reward, self.episode))
         else:
             print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(fileName))        
 

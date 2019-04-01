@@ -38,7 +38,7 @@ class ReplayBuffer(object):
         """
         pass
     
-class UniformReplayBuffer(ReplayBuffer):
+class UniformReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
 
     def __init__(self, params):
@@ -80,7 +80,7 @@ class UniformReplayBuffer(ReplayBuffer):
         return len(self.memory) > self.batch_size
 
 
-class PrioritizedReplayBuffer(ReplayBuffer):
+class PrioritizedReplayBuffer:
     """Fixed-size buffer to store prioritized experience tuples."""
 
     def __init__(self, params):
@@ -147,28 +147,42 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         """Return the current size of internal memory."""
         return len(self.memory) > self.batch_size
 
-class HER:
-    def __init__(self,N):
-        self.buffer = deque()
-        self.N = N
-        
-    def reset(self):
-        self.buffer = deque()
-        
-    def keep(self,item):
-        self.buffer.append(item)
-        
-    def backward(self):
+class HindsightReplayBuffer:
+    """Fixed-size buffer to store experience tuples including goal for HER."""
 
-        new_buffer = copy.deepcopy(self.buffer)
-        num = len(new_buffer)
-        goal = self.buffer[-1][-2][0:self.N]
-        for i in range(num):
-            new_buffer[-1-i][2] = -1.0
-            new_buffer[-1-i][-2][self.N:] = goal
-            new_buffer[-1-i][0][self.N:] = goal
-            new_buffer[-1-i][4] = False
-            if (np.sum(np.abs((new_buffer[-1-i][-2][self.N:] - goal))) == 0):
-                new_buffer[-1-i][2] = 0.0
-                new_buffer[-1-i][4] = True
-        return new_buffer
+    def __init__(self, params):
+        """Initialize a ReplayBuffer object.
+        Params
+        ======
+        From a dictionary of parameters:
+        * **buffer_size** (int) --- the size of the buffer
+        * **batch_size** (int) --- the batch size to be sampled
+        * **seed** (function) --- the random number seed function
+        """
+
+        self.params = params
+        self.memory = deque(maxlen=self.params['buffer_size'])  
+        self.batch_size = self.params['batch_size']
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done", "goal"])
+        self.seed = random.seed(self.params['seed'].next())
+    
+    def add(self, state, action, reward, next_state, done, goal):
+        """Add a new experience to memory."""
+        e = self.experience(state, action, reward, next_state, done, goal)
+        self.memory.append(e)
+    
+    def sample(self):
+        """Randomly sample a batch of experiences from memory."""
+        experiences = random.sample(self.memory, k=self.batch_size)
+
+        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
+        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(device)
+        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
+        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+        goals = torch.from_numpy(np.vstack([e.goal for e in experiences if e is not None])).float().to(device)
+        return (states, actions, rewards, next_states, dones, goals)
+
+    def ready(self):
+        """Return the current size of internal memory."""
+        return len(self.memory) > self.batch_size

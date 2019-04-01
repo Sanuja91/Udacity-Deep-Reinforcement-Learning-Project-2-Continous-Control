@@ -5,7 +5,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import torch.nn.functional as F
-import torch.nn as nn
 
 from agent import DDPGAgent
 from train import train
@@ -50,9 +49,7 @@ params = {
             'seed': seedGenerator,                # seed of the network architecture
             'hidden_layers': [512, 512, 128], # hidden layer neurons
             'dropout': 0.05,
-            # 'act_fn': [F.leaky_relu, F.leaky_relu, F.F.leaky_relu]
-            'act_fn': [nn.ELU(), nn.ELU(), nn.ELU()]
-            # nn.ELU()
+            'act_fn': [F.leaky_relu, F.leaky_relu, F.tanh]
         },
         'critic_params': {               # critic parameters
             'norm': True,
@@ -64,8 +61,7 @@ params = {
             'hidden_layers': [512, 512, 128], # hidden layer neurons
             'dropout': 0.05,
             'action_layer': 1,
-            # 'act_fn': [F.leaky_relu, F.leaky_relu, lambda x: x]
-            'act_fn': [nn.ELU(), nn.ELU(), lambda x: x]
+            'act_fn': [F.leaky_relu, F.leaky_relu, lambda x: x]
         },
         'noise_params': {            # parameters for the noisy process
             'mu': 0.,                # mean
@@ -77,10 +73,9 @@ params = {
     }
 }
 
-# agents = [DDPGAgent(idx=idx, params=params['agent_params']) for idx, a in enumerate(range(num_agents))]
-agents = DDPGAgent(idx=0, params=params['agent_params']) 
+agents = [DDPGAgent(idx=idx, params=params['agent_params']) for idx, a in enumerate(range(num_agents))]
 
-scores = train(agents=agents, params=params, num_processes=num_agents)
+scores = train(agents=agents, params=params)
 
 df = pd.DataFrame(data={'episode': np.arange(len(scores)), 'DDPG-3': scores})
 df.to_csv('results/DDPG-3-scores.csv', index=False)

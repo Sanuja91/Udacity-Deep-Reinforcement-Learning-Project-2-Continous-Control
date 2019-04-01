@@ -11,7 +11,7 @@ from utilities import initialize_env, get_device, update_csv
 BUFFER_SIZE = int(1e5)  
 BATCH_SIZE = 10       
 RANDOM_SEED = 4
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-5
 LEARNING_RATE_DECAY = 0.95
 ENTROPY_BETA = 0.01
 CRITIC_DISCOUNT = 0.5
@@ -68,13 +68,15 @@ def actor_critic(agent_name, multiple_agents = False, load_agent = False, n_epis
     update_start = time.time()
     timesteps = 0
     episode = 0
-    for update in range(num_updates):   
+    if load_agent != False:
+        episode = agent.episode
+    while True:   
         """CAN INSERT LR DECAY HERE"""
-        if episode == MAX_EPISODES:
-            return scores_episode
+        # if episode == MAX_EPISODES:
+        #     return scores_episode
 
         # Adds noise to agents parameters to encourage exploration
-        agent.add_noise(PARAMETER_NOISE)
+        # agent.add_noise(PARAMETER_NOISE)
 
         for step in range(NUM_STEPS):
             step_start = time.time()
@@ -84,7 +86,7 @@ def actor_critic(agent_name, multiple_agents = False, load_agent = False, n_epis
                 values, actions, action_log_probs, _  = agent.act(states)
 
 
-            # clipped_actions = np.clip(actions.cpu().numpy(), *ACTION_BOUNDS)
+            clipped_actions = np.clip(actions.cpu().numpy(), *ACTION_BOUNDS)
             env_info = env.step(actions.cpu().numpy())[brain_name]       # send the action to the environment 
             next_states = env_info.vector_observations     # get the next state
             rewards = env_info.rewards                     # get the reward
@@ -104,11 +106,17 @@ def actor_critic(agent_name, multiple_agents = False, load_agent = False, n_epis
             if timesteps % 100:
                 print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'.format(timesteps, np.mean(scores), np.min(scores), np.max(scores)), end="") 
             
+
             
             if np.any(dones):
                 print('\rEpisode {}\tScore: {:.2f}\tAverage Score: {:.2f}\tMin Score: {:.2f}\tMax Score: {:.2f}'.format(episode, score, np.mean(scores_window), np.min(scores), np.max(scores)), end="\n")
                 update_csv(agent_name, episode, np.mean(scores_window), np.max(scores))
-                agent.save_agent(agent_name, score, episode)
+
+                if episode % 20 == 0:
+                    agent.save_agent(agent_name, score, episode, save_history = True)
+                else:
+                    agent.save_agent(agent_name, score, episode)
+
                 episode += 1
                 scores = np.zeros(num_agents)
                 break 

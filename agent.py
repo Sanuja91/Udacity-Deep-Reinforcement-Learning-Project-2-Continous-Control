@@ -3,6 +3,7 @@ from abc import ABCMeta, abstractmethod
 
 import random
 import copy
+import os
 
 import numpy as np
 
@@ -100,6 +101,7 @@ class DDPGAgent(Agent):
         self.update_every = params['update_every']
         self.gamma = params['gamma']
         self.num_agents = params['num_agents']
+        self.name = "BATCH D4PG"
         
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(params['actor_params']).to(device)
@@ -109,6 +111,12 @@ class DDPGAgent(Agent):
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(params['critic_params']).to(device)
         self.critic_target = Critic(params['critic_params']).to(device)
+
+        print("\n################ ACTOR ################\n")
+        print(self.actor_local)
+        
+        print("\n################ CRITIC ################\n")
+        print(self.critic_local)
 
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(),
                                            lr=params['critic_params']['lr'],
@@ -120,14 +128,21 @@ class DDPGAgent(Agent):
         # Replay memory
         self.memory = params['experience_replay']
     
-    def step(self, states, actions, rewards, next_states, dones):
+    def step(self, state, action, reward, next_state, done):
         """Save experience in replay memory, and use random sample from buffer to learn."""
-        next_state = torch.from_numpy(next_states[self.idx]).float().unsqueeze(0).to(device)
-        state = torch.from_numpy(states[self.idx]).float().unsqueeze(0).to(device)
+        # next_state = torch.from_numpy(next_states[self.idx]).float().unsqueeze(0).to(device)
+        # state = torch.from_numpy(states[self.idx]).float().unsqueeze(0).to(device)
         
-        # print("\nSTATE\n", state, "\nACTION\n", actions[self.idx], "\nREWARD\n", rewards[self.idx], "\nNEXT STATE\n", next_state, "\nDONE\n", dones[self.idx])
+        # # print("\nSTATE\n", state, "\nACTION\n", actions[self.idx], "\nREWARD\n", rewards[self.idx], "\nNEXT STATE\n", next_state, "\nDONE\n", dones[self.idx])
+        # # Save experience / reward
+        # self.memory.add(state.cpu(), actions[self.idx], rewards[self.idx], next_state.cpu(), dones[self.idx])
+
+        next_state = torch.from_numpy(next_state).float().unsqueeze(0).to(device)
+        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        
+        # print("\nSTATE\n", state, "\nACTION\n", action, "\nREWARD\n", reward, "\nNEXT STATE\n", next_state, "\nDONE\n", done)
         # Save experience / reward
-        self.memory.add(state.cpu(), actions[self.idx], rewards[self.idx], next_state.cpu(), dones[self.idx])
+        self.memory.add(state.cpu(), action, reward, next_state.cpu(), done)
 
     def act(self, state, add_noise=True):
         """Returns actions for given state as per current policy."""
@@ -146,12 +161,24 @@ class DDPGAgent(Agent):
     def learn(self):        
         # Learn every UPDATE_EVERY time steps.
         self.t_step += 1
-        # self.t_step = (self.t_step + 1) % self.update_every
-        if self.t_step % self.update_every == 0:
-            # If enough samples are available in memory, get random subset and learn
-            if self.memory.ready():
-                experiences = self.memory.sample()
-                self.learn_(experiences)
+        # print(self.t_step)
+        # # self.t_step = (self.t_step + 1) % self.update_every
+        # if self.t_step % self.update_every == 0:
+        #     print("LEARNING", self.t_step)
+        #     # If enough samples are available in memory, get random subset and learn
+        #     if self.memory.ready():
+        #         experiences = self.memory.sample()
+        #         # print("################################## LEARN XP LENGTH",len(experiences))
+        #         self.learn_(experiences)
+
+
+
+        # If enough samples are available in memory, get random subset and learn
+        if self.memory.ready():
+            experiences = self.memory.sample()
+            # print("################################## LEARN XP LENGTH",len(experiences))
+            self.learn_(experiences)
+        
         
     def learn_(self, experiences):
         """Update policy and value parameters using given batch of experience tuples.
@@ -170,11 +197,14 @@ class DDPGAgent(Agent):
         # Get predicted next-state actions and Q values from target models
         actions_next = self.actor_target(next_states)
         Q_targets_next = self.critic_target(next_states, actions_next)
+        
         # Compute Q targets for current states (y_i)
         Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
+
         # Compute critic loss
         Q_expected = self.critic_local(states, actions)
         critic_loss = F.mse_loss(Q_expected, Q_targets)
+
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -192,7 +222,54 @@ class DDPGAgent(Agent):
 
         # ----------------------- update target networks ----------------------- #
         self.soft_update(self.critic_local, self.critic_target)
-        self.soft_update(self.actor_local, self.actor_target)                     
+        self.soft_update(self.actor_local, self.actor_target) 
+
+
+    def add_param_noise(self, noise):
+        """Adds noise to the weights of the agent"""
+        with torch.no_grad():
+            for param in self.actor_local.parameters():
+                param.add_(torch.randn(param.size()).to(device) * noise)
+            for param in self.critic_local.parameters():
+                param.add_(torch.randn(param.size()).to(device) * noise)
+
+
+    def save_agent(self, average_reward, episode, save_history = False):
+        """Save the checkpoint"""
+        checkpoint = {'actor_state_dict': self.actor_target.state_dict(), 'critic_state_dict': self.critic_target.state_dict(), 'average_reward': average_reward, 'episode': episode}
+        
+        if not os.path.exists("checkpoints"):
+            os.makedirs("checkpoints") 
+        
+        filePath = 'checkpoints\\' + self.name + '.pth'
+        # print("\nSaving checkpoint\n")
+        torch.save(checkpoint, filePath)
+
+        if save_history:
+            filePath = 'checkpoints\\' + self.name + '_' + str(episode) + '.pth'
+            torch.save(checkpoint, filePath)
+
+
+    def load_agent(self):
+        """Load the checkpoint"""
+        # print("\nLoading checkpoint\n")
+        filePath = 'checkpoints\\' + self.name + '.pth'
+
+        if os.path.exists(filePath):
+            checkpoint = torch.load(filePath, map_location = lambda storage, loc: storage)
+
+            self.actor_local.load_state_dict(checkpoint['actor_state_dict'])
+            self.actor_target.load_state_dict(checkpoint['actor_state_dict'])
+            self.critic_local.load_state_dict(checkpoint['critic_state_dict'])
+            self.critic_target.load_state_dict(checkpoint['critic_state_dict'])
+
+            average_reward = checkpoint['average_reward']
+            episode = checkpoint['episode']
+            
+            print("Loading checkpoint - Average Reward {} at Episode {}".format(average_reward, episode))
+        else:
+            print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(self.name))        
+                    
 
 class OUNoise:
     """Ornstein-Uhlenbeck process."""

@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import torch.nn.functional as F
+import torch.nn as nn
 
 from agent import DDPGAgent
 from train import train
@@ -12,7 +13,7 @@ from utilities import Seeds, initialize_env
 from memory import UniformReplayBuffer
 
 
-env, env_info, states, state_size, action_size, brain_name, num_agents = initialize_env(multiple_agents = True, train_mode = True)
+env, env_info, states, state_size, action_size, brain_name, num_agents = initialize_env(multiple_agents = False, train_mode = True)
 
 seedGenerator = Seeds('seeds')
 seedGenerator.next()
@@ -43,17 +44,19 @@ params = {
         'add_noise': True,          # add noise using 'noise_params'
         'actor_params': {            # actor parameters
             'norm': True,
-            'lr': 0.001,            # learning rate
+            'lr': 1e-4,            # learning rate
             'state_size': state_size,    # size of the state space
             'action_size': action_size,  # size of the action space
             'seed': seedGenerator,                # seed of the network architecture
             'hidden_layers': [512, 512, 128], # hidden layer neurons
             'dropout': 0.05,
-            'act_fn': [F.leaky_relu, F.leaky_relu, F.tanh]
+            # 'act_fn': [F.leaky_relu, F.leaky_relu, F.F.leaky_relu]
+            'act_fn': [nn.ELU(), nn.ELU(), nn.ELU()]
+            # nn.ELU()
         },
         'critic_params': {               # critic parameters
             'norm': True,
-            'lr': 0.001,                 # learning rate
+            'lr': 1e-4,                 # learning rate
             'weight_decay': 0.0,          # weight decay
             'state_size': state_size,    # size of the state space
             'action_size': action_size,  # size of the action space
@@ -61,7 +64,8 @@ params = {
             'hidden_layers': [512, 512, 128], # hidden layer neurons
             'dropout': 0.05,
             'action_layer': 1,
-            'act_fn': [F.leaky_relu, F.leaky_relu, lambda x: x]
+            # 'act_fn': [F.leaky_relu, F.leaky_relu, lambda x: x]
+            'act_fn': [nn.ELU(), nn.ELU(), lambda x: x]
         },
         'noise_params': {            # parameters for the noisy process
             'mu': 0.,                # mean
@@ -73,9 +77,10 @@ params = {
     }
 }
 
-agents = [DDPGAgent(idx=idx, params=params['agent_params']) for idx, a in enumerate(range(num_agents))]
+# agents = [DDPGAgent(idx=idx, params=params['agent_params']) for idx, a in enumerate(range(num_agents))]
+agents = DDPGAgent(idx=0, params=params['agent_params']) 
 
-scores = train(agents=agents, params=params)
+scores = train(agents=agents, params=params, num_processes=num_agents)
 
 df = pd.DataFrame(data={'episode': np.arange(len(scores)), 'DDPG-3': scores})
 df.to_csv('results/DDPG-3-scores.csv', index=False)

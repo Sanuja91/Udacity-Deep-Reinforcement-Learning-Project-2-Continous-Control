@@ -6,12 +6,8 @@ import numpy as np
 
 import torch
 
-from utilities import update_csv
 
-NEGATIVE_REWARD = -0.001
-PARAMETER_NOISE = 0.01
-
-def train(agents, params, num_processes):
+def train(agents, params):
     """Training Loop for value-based RL methods.
     Params
     ======
@@ -25,7 +21,7 @@ def train(agents, params, num_processes):
     env = params['environment']
     achievement = params['achievement']
     add_noise = params['agent_params']['add_noise']
-    num_agents = num_processes
+    num_agents = len(agents)
     scores = np.zeros(num_agents)                     # list containing scores from each episode
     scores_window = deque(maxlen=maxlen)              # last N scores
     scores_episode = []
@@ -38,38 +34,26 @@ def train(agents, params, num_processes):
         timestep = time.time()
         states = env_info.vector_observations
         scores = np.zeros(num_agents)
-        agents.add_param_noise(PARAMETER_NOISE)
-        
-        # for a in agents:
-        #     a.reset()                                  # reset the noise process after each episode
-        agents.reset()
-        
+        for a in agents:
+            a.reset()                                  # reset the noise process after each episode
         while True:
-            # actions = [agent.act(states[idx], add_noise) for idx, agent in enumerate(agents)]
-            actions = agents.act(states, add_noise)
+            
+            actions = [agent.act(states[idx], add_noise) for idx, agent in enumerate(agents)]
+            # print(actions)
             env_info = env.step(actions)[brain_name]       # send the action to the environment
             next_states = env_info.vector_observations     # get the next state
             rewards = env_info.rewards                     # get the reward
             dones = env_info.local_done                    # see if episode has finished
             
-            adjusted_rewards = np.array(env_info.rewards)
-            adjusted_rewards[adjusted_rewards == 0] = NEGATIVE_REWARD
-            # adjusted_rewards = torch.from_numpy(adjusted_rewards).to(device).float().unsqueeze(1)
-            
             # TODO Make this happen parallely 
 
-            for idx in range(num_processes):
-                # print("\nSTATES\n", states[idx], "\nACTIONS\n", actions[idx], "\nREWARDS\n", rewards[idx], "\nNEXT STATES\n", next_states[idx], "\DONES\n", dones[idx])
-                agents.step(states[idx], actions[idx], adjusted_rewards[idx], next_states[idx], dones[idx]) 
-            agents.learn()
-            
-            # for a in agents:                               # each agent takes a step, but we give all agents the entire tuple for the experience replay
-            #     a.step(states, actions, rewards, next_states, dones)
-            # for a in agents:                               # each agent takes a step, but we give all agents the entire tuple for the experience replay
-            #     a.learn()
+            for a in agents:                               # each agent takes a step, but we give all agents the entire tuple for the experience replay
+                a.step(states, actions, rewards, next_states, dones)
+            for a in agents:                               # each agent takes a step, but we give all agents the entire tuple for the experience replay
+                a.learn()
             
             # TODO Make this happen parallely 
-
+            
             scores += rewards                              # update the scores
             states = next_states                           # roll over the state to next time step
             if np.any(dones):                              # exit loop if episode finished
@@ -82,9 +66,7 @@ def train(agents, params, num_processes):
         scores_episode.append(score)
         scores_window.append(score)       # save most recent score
 
-        print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores), np.min(scores), np.max(scores), time.time() - timestep), end="\n")
-        agents.save_agent(np.mean(scores_window), i_episode)
-        update_csv("DDPG", i_episode, np.mean(scores), np.mean(scores))
+        print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores_window), np.min(scores_window), np.max(scores_window), time.time() - timestep), end="\n")
         if i_episode % 100 == 0:
             toc = time.time()
             print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores_window), np.min(scores_window), np.max(scores_window), toc - tic), end="")
@@ -93,8 +75,7 @@ def train(agents, params, num_processes):
             print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f} \t Time: {:.2f}'.format(i_episode-100, np.mean(scores_window), toc-tic))
             if best_min_score < np.min(scores_window):
                 best_min_score = np.min(scores_window)
-                # agents.save
-                # for idx, a in enumerate(agents):
-                #     torch.save(a.actor_local.state_dict(), 'results/' + str(idx) + '_' + str(i_episode) + '_' + name + '_actor_checkpoint.pth')
-                #     torch.save(a.critic_local.state_dict(), 'results/' + str(idx) + '_' + str(i_episode) + '_' + name + '_critic_checkpoint.pth')
+                for idx, a in enumerate(agents):
+                    torch.save(a.actor_local.state_dict(), 'results/' + str(idx) + '_' + str(i_episode) + '_' + name + '_actor_checkpoint.pth')
+                    torch.save(a.critic_local.state_dict(), 'results/' + str(idx) + '_' + str(i_episode) + '_' + name + '_critic_checkpoint.pth')
     return scores
