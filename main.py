@@ -13,7 +13,7 @@ from utilities import Seeds, initialize_env
 from memory import UniformReplayBuffer
 
 
-env, env_info, states, state_size, action_size, brain_name, num_agents = initialize_env(multiple_agents = False, train_mode = True)
+env, env_info, states, state_size, action_size, brain_name, num_agents = initialize_env(multiple_agents = True, train_mode = True)
 
 seedGenerator = Seeds('seeds')
 seedGenerator.next()
@@ -41,7 +41,7 @@ params = {
         'tau': 0.001,                # mixing rate soft-update of target parameters
         'update_every': 10,        # update every n-th step
         'num_updates': 5,            # we don't necessarily need to run as many rounds of updates as there are agents
-        'add_noise': True,          # add noise using 'noise_params'
+        'add_noise': False,          # add noise using 'noise_params'
         'actor_params': {            # actor parameters
             'norm': True,
             'lr': 1e-4,            # learning rate
@@ -56,7 +56,7 @@ params = {
         },
         'critic_params': {               # critic parameters
             'norm': True,
-            'lr': 1e-4,                 # learning rate
+            'lr': 1e-4,                # learning rate
             'weight_decay': 0.0,          # weight decay
             'state_size': state_size,    # size of the state space
             'action_size': action_size,  # size of the action space

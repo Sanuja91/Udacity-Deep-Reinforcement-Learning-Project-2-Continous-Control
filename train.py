@@ -56,7 +56,7 @@ def train(agents, params, num_processes):
             dones = env_info.local_done                    # see if episode has finished
             
             adjusted_rewards = np.array(env_info.rewards)
-            adjusted_rewards[adjusted_rewards == 0] = NEGATIVE_REWARD
+            # adjusted_rewards[adjusted_rewards == 0] = NEGATIVE_REWARD
             # adjusted_rewards = torch.from_numpy(adjusted_rewards).to(device).float().unsqueeze(1)
             
             # TODO Make this happen parallely 
