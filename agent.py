@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from models import Actor, Critic, D4PGCritic
+from models import Actor, D4PGCritic
 from noise import OUNoise, GaussianExploration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -118,6 +118,7 @@ class DDPGAgent(Agent):
         print("\n################ CRITIC ################\n")
         print(self.critic_active)
 
+
         self.critic_optimizer = optim.Adam(self.critic_active.parameters(),
                                            lr=params['critic_params']['lr'],
                                            weight_decay=params['critic_params']['weight_decay'])
@@ -136,7 +137,9 @@ class DDPGAgent(Agent):
 
         # Learn after done pretraining
         if pretrain == False:
-            self.learn()
+            return self.learn()
+        
+        return None, None
 
 
     def act(self, states, add_noise = True, pretrain = False):
@@ -152,6 +155,7 @@ class DDPGAgent(Agent):
             if add_noise:
                 actions += self.noise.create_noise(actions.shape)
             actions = np.clip(actions, -1., 1.)        
+            # print(actions)
         
         return actions
         
@@ -167,7 +171,10 @@ class DDPGAgent(Agent):
 
         # If enough samples are available in memory, get random subset and learn
         if self.memory.ready():
-            self.learn_()
+            return self.learn_()
+        
+        return None, None
+
         
         
     def learn_(self):
@@ -317,7 +324,7 @@ class D4PGAgent(DDPGAgent):
         self.v_max = params['critic_params']['v_max']
         self.update_type = params['update_type']
         self.device = params['device']
-        self.name = "BATCH D4PG"
+        self.name = params['name']
 
         # Distributes the number of atoms across the range of v min and max
         self.atoms = torch.linspace(self.v_min, self.v_max, self.num_atoms).to(self.device)
@@ -340,6 +347,10 @@ class D4PGAgent(DDPGAgent):
         
         print("\n################ CRITIC ################\n")
         print(self.critic_active)
+
+        
+        if params['load_agent']:
+            self.load_agent()
 
         self.critic_optimizer = optim.Adam(self.critic_active.parameters(),
                                            lr=params['critic_params']['lr'],
@@ -406,6 +417,8 @@ class D4PGAgent(DDPGAgent):
 
         # Updates the target networks
         self._update_networks()
+
+        return actor_loss.item(), critic_loss.item()
 
 
     def _get_targets(self, rewards, next_states):

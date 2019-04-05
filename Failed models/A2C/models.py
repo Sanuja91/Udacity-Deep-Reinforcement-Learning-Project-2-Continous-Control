@@ -59,6 +59,8 @@ class ActorCritic(nn.Module):
             nn.ELU(),
             # # nn.Dropout(dropout_rate)
         )
+        print("############## \n\nCRITIC DOESNT FACTOR IN ACTION!!!")
+        exit()
         
         self.critic = nn.Sequential(
             nn.Linear(FC3, FC3),
