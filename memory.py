@@ -1,188 +1,118 @@
-from abc import ABCMeta, abstractmethod
-
+from collections import deque
+import random
+import torch
 import numpy as np
 
-import random
-from collections import namedtuple, deque
-
-import torch
-
-EPSILON = 1e-5          # small number for numeric stability
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-class ReplayBuffer(object):
+class NStepReplayBuffer:
     """
-    Abstract base class for replay buffers.
+    N step replay buffer to hold experiences for training. 
+    Returns a random set of experiences without priority.
+
+    The replay buffer can adapt to holding trajectories where 
+    the buffer with hold SARS' data instead of hold a single experience
+    state = state at t
+    action = action at t
+    reward = cumulative reward from t through t + n-1
+    next_state = state at t + n
+    where n = rollout length.
     """
-    __metaclass__ = ABCMeta
+    def __init__(self, params):
+        # device, buffer_size=100000, gamma=0.99, rollout=5, agent_count=1
+        self.memory = deque(maxlen=params['buffer_size'])
+        self.device = params['device']
+        self.gamma = params['gamma']
+        self.rollout = params['rollout']
+        self.agent_count = params['agent_count']
+        self.pretrain = params['pretrain']
+        self.batch_size = params['batch_size']
 
-    @abstractmethod
-    def add(self, state, action, reward, next_state, done):
+        # Creates a deque to handle nstep returns if in trajectory mode
+        if self.rollout > 1:
+            self.n_step = []
+            # self.n_step = deque(maxlen=self.rollout)       
+            for _ in range(self.agent_count):
+                self.n_step.append(deque(maxlen=self.rollout))
+
+
+
+    def add(self, experience):
         """
-        Add an experience tuple to the replay buffer.
+        Checks if in trajectory mode or experience mode. If in trajectory mode,
+        it holds n step experiences until the rollout length is reached following 
+        which a discounted n step return is calculated (new reward)
         """
-        pass
-    
-    @abstractmethod
+        state, action, reward, next_state, done = experience
+
+        # If rollouts > 1, then its a trajectory not an episode
+        if self.rollout > 1:
+            for actor in range(self.agent_count):
+                # Adds experience into n step trajectory
+                self.n_step[actor].append((state[actor], action[actor], reward[actor], next_state[actor], done[actor]))
+
+            # Abort process over here if trajectory length
+            # worth of experiences haven't been reached
+            if len(self.n_step[0]) < self.rollout:
+                return
+            
+            # Converts the trajectory into and n step experience
+            experience = self._create_n_step_experience()
+
+        state, next_state, action, reward, done = experience
+        action = torch.tensor(action).float()
+        reward = torch.tensor(reward).float()
+        next_state = torch.tensor(next_state).float()
+        done = torch.tensor(done).float()
+        self.memory.append((state, next_state, action, reward, done))
+
     def sample(self):
         """
-        Sample from the replay buffer.
+        Return a sample of size BATCH_SIZE as a tuple.
         """
-        pass
-
-    @abstractmethod
-    def ready(self):
-        """
-        Test whether the replay buffer is full so that it can be sampled.
-        """
-        pass
-    
-class UniformReplayBuffer:
-    """Fixed-size buffer to store experience tuples."""
-
-    def __init__(self, params):
-        """Initialize a ReplayBuffer object.
-        Params
-        ======
-        From a dictionary of parameters:
-        * **buffer_size** (int) --- the size of the buffer
-        * **batch_size** (int) --- the batch size to be sampled
-        * **seed** (function) --- the random number seed function
-        """
-    
-
-        self.params = params
-        self.memory = deque(maxlen=self.params['buffer_size'])  
-        self.batch_size = self.params['batch_size']
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
-        self.seed = random.seed(self.params['seed'].next())
-    
-    def add(self, state, action, reward, next_state, done):
-        """Add a new experience to memory."""
-        e = self.experience(state, action, reward, next_state, done)
-        self.memory.append(e)
-    
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
-        experiences = random.sample(self.memory, k=self.batch_size)
-
-        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(device)
-        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-  
-        return (states, actions, rewards, next_states, dones)
-
-    def ready(self):
-        """Return the current size of internal memory."""
-        return len(self.memory) > self.batch_size
-
-
-class PrioritizedReplayBuffer:
-    """Fixed-size buffer to store prioritized experience tuples."""
-
-    def __init__(self, params):
-        """Initialize a ReplayBuffer object.
-        Params
-        ======
-        From a dictionary of parameters:
-        * **buffer_size** (int) --- the size of the buffer
-        * **batch_size** (int) --- the batch size to be sampled
-        * **seed** (function) --- the random number seed function
-        * **alpha** (float) --- the alpha parameter for prioritized replay buffer sampling
-        """
-    
-
-        self.params = params
-        self.buffer_size = self.params['buffer_size']
-        self.memory = deque(maxlen=self.buffer_size)
-        self.priorities = deque(maxlen=self.buffer_size)
-        self.batch_size = self.params['batch_size']
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
-        self.seed = random.seed(self.params['seed'].next())
-        self.alpha = self.params['alpha']
-    
-    def add(self, state, action, reward, next_state, done, priority):
-        """Add a new experience to memory."""
-        e = self.experience(state, action, reward, next_state, done)
-        self.memory.append(e)
-        self.priorities.append(priority)
-    
-    def sample(self, beta):
-        """Randomly sample a batch of experiences from memory."""
-        priorities = np.array(self.priorities).reshape(-1)
-        priorities = np.power(priorities + EPSILON, self.alpha)  # add a small value epsilon to ensure numeric stability
-        p = priorities/np.sum(priorities)  # compute a probability density over the priorities
-        sampled_indices = np.random.choice(np.arange(len(p)), size=self.batch_size, p=p)  # choose random indices given p
-        experiences = [self.memory[i] for i in sampled_indices]     # subset the experiences
-        p = np.array([p[i] for i in sampled_indices]).reshape(-1)
         
-        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)
-        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-        weights = np.power(len(experiences) * p, -beta)
+        batch = random.sample(self.memory, k = self.batch_size)
+        state, next_state, actions, rewards, dones = zip(*batch)
 
-        weights /= weights.max()
-        weights = torch.from_numpy(weights).float().to(device)
+        # Transpose the num_agents and batch_size, for easy indexing later
+        # e.g. from 64 samples of 2 agents each, to 2 agents with 64 samples
+        state = torch.stack(state).to(self.device)
+        next_state = torch.stack(next_state).to(self.device)
+        actions = torch.stack(actions).to(self.device)
+        rewards = torch.stack(rewards).to(self.device)
+        dones = torch.stack(dones).to(self.device)
+        return (state, next_state, actions, rewards, dones)
 
-        return (states, actions, rewards, next_states, dones, weights, sampled_indices)
-
-    def update(self, indices, priorities):
+    def _create_n_step_experience(self):
         """
-        Update the priority values after training given the samples drawn.
+        Takes a stack of experiences nof the rollout length and calculates
+        the n step discounted return as the new reward
+        It takes the intial state and the state at the end of the rollout as 
+        the next step and calculates the reward in terms of a discounted n step return
+        Takes a stack of experience tuples of length rollout and calculates
+        the n step 
         
-        Params
-        ======
-        * **indices** (array-like) --- the sampled indices into the experience tuple
-        * **priorities** (array-like) --- the scaled priorities to be updated
+        Returns are simply summed rewards
         """
-        for i, priority in zip(indices, priorities):
-            self.priorities[i] = priority
+        # Unpacks and stores the SARS' tuple for each actor in the environment
+        # thus, each timestep actually adds K_ACTORS memories to the buffer,
+        # for the Udacity environment this means 20 memories each timestep.
+        for agent_experiences in self.n_step:
+            states, actions, rewards, next_states, dones = zip(*agent_experiences)
+
+            # The immediate reward is not discounted
+            returns = rewards[0]
+
+            # Every following reward is exponentially discounted by gamma
+            # Gamma can be used to control the value of future rewards
+            for i in range(1, self.rollout):
+                returns += self.gamma**i * rewards[i]
+                if np.any(dones[i]):
+                    break
+
+            state = states[0]
+            nstep_state = next_states[i]
+            action = actions[0]
+            done = dones[i]
+        return (state, nstep_state, action, returns, done)
 
     def ready(self):
-        """Return the current size of internal memory."""
-        return len(self.memory) > self.batch_size
-
-class HindsightReplayBuffer:
-    """Fixed-size buffer to store experience tuples including goal for HER."""
-
-    def __init__(self, params):
-        """Initialize a ReplayBuffer object.
-        Params
-        ======
-        From a dictionary of parameters:
-        * **buffer_size** (int) --- the size of the buffer
-        * **batch_size** (int) --- the batch size to be sampled
-        * **seed** (function) --- the random number seed function
-        """
-
-        self.params = params
-        self.memory = deque(maxlen=self.params['buffer_size'])  
-        self.batch_size = self.params['batch_size']
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done", "goal"])
-        self.seed = random.seed(self.params['seed'].next())
-    
-    def add(self, state, action, reward, next_state, done, goal):
-        """Add a new experience to memory."""
-        e = self.experience(state, action, reward, next_state, done, goal)
-        self.memory.append(e)
-    
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
-        experiences = random.sample(self.memory, k=self.batch_size)
-
-        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(device)
-        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-        goals = torch.from_numpy(np.vstack([e.goal for e in experiences if e is not None])).float().to(device)
-        return (states, actions, rewards, next_states, dones, goals)
-
-    def ready(self):
-        """Return the current size of internal memory."""
-        return len(self.memory) > self.batch_size
+        return len(self.memory) > self.pretrain

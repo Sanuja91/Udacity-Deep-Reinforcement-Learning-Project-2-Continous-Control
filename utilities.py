@@ -3,23 +3,23 @@ import numpy as np
 import torch, time, os
 import pandas as pd
 
-def initialize_env(multiple_agents = False, train_mode = True):
+def initialize_env(params):
     """Initialies the environment 
     Params
     ==========
     multiple_agents (boolean): multiple agents or single agent"""
 
-    if multiple_agents:
-        env = UnityEnvironment(file_name="Reacher_Windows_x86_64/Multi/Reacher.exe", worker_id = 1, seed = 1)
+    if params['multiple_agents']:
+        env = UnityEnvironment(file_name="Reacher_Windows_x86_64/Multi/Reacher.exe", worker_id = 1, no_graphics = params['no_graphics'])
     else:
-        env = UnityEnvironment(file_name="Reacher_Windows_x86_64/Single/Reacher.exe", worker_id = 1, seed = 1)
+        env = UnityEnvironment(file_name="Reacher_Windows_x86_64/Single/Reacher.exe", worker_id = 1, no_graphics = params['no_graphics'])
 
     """Resetting environment"""
     brain_name = env.brain_names[0]
     brain = env.brains[brain_name]
 
     # reset the environment
-    env_info = env.reset(train_mode = train_mode)[brain_name]
+    env_info = env.reset(train_mode = params['train_mode'])[brain_name]
 
     num_agents = len(env_info.agents)
 

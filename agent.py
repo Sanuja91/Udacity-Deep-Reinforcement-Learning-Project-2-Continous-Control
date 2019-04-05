@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from models import Actor, Critic
+from models import Actor, Critic, D4PGCritic
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -87,7 +87,7 @@ class Agent(object):
 class DDPGAgent(Agent):
     """Interacts with and learns from the environment."""
     
-    def __init__(self, idx, params):
+    def __init__(self, params):
         """Initialize an Agent object.
         
         Params
@@ -96,29 +96,29 @@ class DDPGAgent(Agent):
         """
         super().__init__(params)
 
-        self.idx = idx
         self.params = params
         self.update_every = params['update_every']
         self.gamma = params['gamma']
         self.num_agents = params['num_agents']
-        self.name = "BATCH D4PG"
+        self.update_type = params['update_type']
+        self.name = "BATCH DDPG"
         
         # Actor Network (w/ Target Network)
-        self.actor_local = Actor(params['actor_params']).to(device)
+        self.actor_active = Actor(params['actor_params']).to(device)
         self.actor_target = Actor(params['actor_params']).to(device)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=params['actor_params']['lr'])
+        self.actor_optimizer = optim.Adam(self.actor_active.parameters(), lr=params['actor_params']['lr'])
         
         # Critic Network (w/ Target Network)
-        self.critic_local = Critic(params['critic_params']).to(device)
+        self.critic_active = Critic(params['critic_params']).to(device)
         self.critic_target = Critic(params['critic_params']).to(device)
 
         print("\n################ ACTOR ################\n")
-        print(self.actor_local)
+        print(self.actor_active)
         
         print("\n################ CRITIC ################\n")
-        print(self.critic_local)
+        print(self.critic_active)
 
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(),
+        self.critic_optimizer = optim.Adam(self.critic_active.parameters(),
                                            lr=params['critic_params']['lr'],
                                            weight_decay=params['critic_params']['weight_decay'])
 
@@ -128,29 +128,29 @@ class DDPGAgent(Agent):
         # Replay memory
         self.memory = params['experience_replay']
     
-    def step(self, state, action, reward, next_state, done):
+    def step(self, states, actions, rewards, next_states, dones):
         """Save experience in replay memory, and use random sample from buffer to learn."""
-        # next_state = torch.from_numpy(next_states[self.idx]).float().unsqueeze(0).to(device)
-        # state = torch.from_numpy(states[self.idx]).float().unsqueeze(0).to(device)
-        
-        # # print("\nSTATE\n", state, "\nACTION\n", actions[self.idx], "\nREWARD\n", rewards[self.idx], "\nNEXT STATE\n", next_state, "\nDONE\n", dones[self.idx])
-        # # Save experience / reward
-        # self.memory.add(state.cpu(), actions[self.idx], rewards[self.idx], next_state.cpu(), dones[self.idx])
 
-        next_state = torch.from_numpy(next_state).float().unsqueeze(0).to(device)
-        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
-        
-        # print("\nSTATE\n", state, "\nACTION\n", action, "\nREWARD\n", reward, "\nNEXT STATE\n", next_state, "\nDONE\n", done)
-        # Save experience / reward
-        self.memory.add(state.cpu(), action, reward, next_state.cpu(), done)
+        # for state in zip(states):
+        #     print(len(state))
+
+        # Current SARS' stored in short term memory, then stacked for NStep
+        # experience = list(zip(states, actions, rewards, next_states, dones))
+
+        self.memory.add((states, actions, rewards, next_states, dones))
+        self.t_step += 1
+
+        # Learn after done pretraining
+        if self.memory.ready():
+            self.learn()
+
 
     def act(self, state, add_noise=True):
         """Returns actions for given state as per current policy."""
-        state = torch.from_numpy(state).float().to(device)
-        # self.actor_local.eval()
+        # self.actor_active.eval()
         with torch.no_grad():
-            action = self.actor_local(state).cpu().data.numpy()
-        # self.actor_local.train()
+            action = self.actor_active(state.to(device).float()).to('cpu').numpy()
+        # self.actor_active.train()
         if add_noise:
             action += self.noise.sample()
         return np.clip(action, -1., 1.)
@@ -162,14 +162,13 @@ class DDPGAgent(Agent):
         # Learn every UPDATE_EVERY time steps.
         self.t_step += 1
         # print(self.t_step)
-        # # self.t_step = (self.t_step + 1) % self.update_every
-        # if self.t_step % self.update_every == 0:
-        #     print("LEARNING", self.t_step)
-        #     # If enough samples are available in memory, get random subset and learn
-        #     if self.memory.ready():
-        #         experiences = self.memory.sample()
-        #         # print("################################## LEARN XP LENGTH",len(experiences))
-        #         self.learn_(experiences)
+        self.t_step = (self.t_step + 1) % self.update_every
+        if self.t_step % self.update_every == 0:
+            print("LEARNING", self.t_step)
+            # If enough samples are available in memory, get random subset and learn
+            if self.memory.ready():
+                # print("################################## LEARN XP LENGTH",len(experiences))
+                self.learn_(experiences)
 
 
 
@@ -191,7 +190,7 @@ class DDPGAgent(Agent):
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
         """
-        states, actions, rewards, next_states, dones = experiences
+        states, actions, rewards, next_states, dones = self.memory.sample()
 
         # ---------------------------- update critic ---------------------------- #
         # Get predicted next-state actions and Q values from target models
@@ -202,36 +201,36 @@ class DDPGAgent(Agent):
         Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
 
         # Compute critic loss
-        Q_expected = self.critic_local(states, actions)
+        Q_expected = self.critic_active(states, actions)
         critic_loss = F.mse_loss(Q_expected, Q_targets)
 
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
+        torch.nn.utils.clip_grad_norm_(self.critic_active.parameters(), 1)
         self.critic_optimizer.step()
 
         # ---------------------------- update actor ---------------------------- #
         # Compute actor loss
-        actions_pred = self.actor_local(states)
-        actor_loss = -self.critic_local(states, actions_pred).mean()
+        actions_pred = self.actor_active(states)
+        actor_loss = -self.critic_active(states, actions_pred).mean()
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
 
         # ----------------------- update target networks ----------------------- #
-        self.soft_update(self.critic_local, self.critic_target)
-        self.soft_update(self.actor_local, self.actor_target) 
+        self.soft_update(self.critic_active, self.critic_target)
+        self.soft_update(self.actor_active, self.actor_target) 
 
 
-    def add_param_noise(self, noise):
-        """Adds noise to the weights of the agent"""
-        with torch.no_grad():
-            for param in self.actor_local.parameters():
-                param.add_(torch.randn(param.size()).to(device) * noise)
-            for param in self.critic_local.parameters():
-                param.add_(torch.randn(param.size()).to(device) * noise)
+    # def add_param_noise(self, noise):
+    #     """Adds noise to the weights of the agent"""
+    #     with torch.no_grad():
+    #         for param in self.actor_active.parameters():
+    #             param.add_(torch.randn(param.size()).to(device) * noise)
+    #         for param in self.critic_active.parameters():
+    #             param.add_(torch.randn(param.size()).to(device) * noise)
 
 
     def save_agent(self, average_reward, episode, save_history = False):
@@ -258,9 +257,9 @@ class DDPGAgent(Agent):
         if os.path.exists(filePath):
             checkpoint = torch.load(filePath, map_location = lambda storage, loc: storage)
 
-            self.actor_local.load_state_dict(checkpoint['actor_state_dict'])
+            self.actor_active.load_state_dict(checkpoint['actor_state_dict'])
             self.actor_target.load_state_dict(checkpoint['actor_state_dict'])
-            self.critic_local.load_state_dict(checkpoint['critic_state_dict'])
+            self.critic_active.load_state_dict(checkpoint['critic_state_dict'])
             self.critic_target.load_state_dict(checkpoint['critic_state_dict'])
 
             average_reward = checkpoint['average_reward']
@@ -268,8 +267,202 @@ class DDPGAgent(Agent):
             
             print("Loading checkpoint - Average Reward {} at Episode {}".format(average_reward, episode))
         else:
-            print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(self.name))        
+            print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(self.name))   
+
+    
+    def _update_networks(self):
+        """
+        Updates the target networks using the active networks in either a 
+        soft manner with the variable TAU or in a hard manner at every
+        x timesteps
+        """
+
+        if self.update_type == "soft":
+            self._soft_update(self.actor_active, self.actor_target)
+            self._soft_update(self.critic_active, self.critic_target)
+        elif self.t_step % self.update_every == 0:
+            self._hard_update(self.actor_active, self.actor_target)
+            self._hard_update(self.critic_active, self.critic_target)
+
+    def _soft_update(self, active, target):
+        """
+        Slowly updated the network using every-step partial network copies
+        modulated by parameter TAU.
+        """
+
+        for t_param, param in zip(target.parameters(), active.parameters()):
+            t_param.data.copy_(self.tau*param.data + (1-self.tau)*t_param.data)
+
+    def _hard_update(self, active, target):
+        """
+        Fully copy parameters from active network to target network. To be used
+        in conjunction with a parameter "C" that modulated how many timesteps
+        between these hard updates.
+        """
+
+        target.load_state_dict(active.state_dict())
+
                     
+
+class D4PGAgent(DDPGAgent):
+    """Interacts with and learns from the environment."""
+    
+    def __init__(self, params):
+        """Initialize an Agent object.
+        
+        Params
+        ======
+            params (dict-like): dictionary of parameters for the agent
+        """
+        # super().__init__(params)
+
+        self.params = params
+        self.update_every = params['update_every']
+        self.gamma = params['gamma']
+        self.num_agents = params['num_agents']
+        self.num_atoms = params['critic_params']['num_atoms']
+        self.v_min = params['critic_params']['v_min']
+        self.v_max = params['critic_params']['v_max']
+        self.update_type = params['update_type']
+        self.device = params['device']
+        self.name = "BATCH D4PG"
+
+        # Distributes the number of atoms across the range of v min and max
+        self.atoms = torch.linspace(self.v_min, self.v_max, self.num_atoms).to(self.device)
+
+        # Initialize time step (for updating every UPDATE_EVERY steps)
+        self.t_step = 0
+        
+        
+        # Actor Network (w/ Target Network)
+        self.actor_active = Actor(params['actor_params']).to(device)
+        self.actor_target = Actor(params['actor_params']).to(device)
+        self.actor_optimizer = optim.Adam(self.actor_active.parameters(), lr=params['actor_params']['lr'])
+        
+        # Critic Network (w/ Target Network)
+        self.critic_active = D4PGCritic(params['critic_params']).to(device)
+        self.critic_target = D4PGCritic(params['critic_params']).to(device)
+
+        print("\n################ ACTOR ################\n")
+        print(self.actor_active)
+        
+        print("\n################ CRITIC ################\n")
+        print(self.critic_active)
+
+        self.critic_optimizer = optim.Adam(self.critic_active.parameters(),
+                                           lr=params['critic_params']['lr'],
+                                           weight_decay=params['critic_params']['weight_decay'])
+
+        # Noise process
+        self.noise = OUNoise(self.params['noise_params'])
+
+        # Replay memory
+        self.memory = params['experience_replay']
+
+        
+
+              
+    def learn_(self, experiences):
+        """Update policy and value parameters using given batch of experience tuples.
+        Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
+        where:
+            actor_target(state) -> action
+            critic_target(state, action) -> Q-value
+        Params
+        ======
+            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
+            gamma (float): discount factor
+        """
+
+        # Samples from the replay buffer which has calculated the n step returns
+        # Next state represents the state at the n'th step
+        states, actions, rewards, next_states, dones = self.memory.sample()
+        atoms = self.atoms.unsqueeze(0)
+
+        # Calculate log probability distribution using Zw w.r.t. stored actions
+        log_probs = self.critic_active(states, actions, log=True)
+
+        # Calculate the projected log probabilities from the target actor and critic networks
+        # Tensors are not required for backpropogation hence are detached for performance
+        target_dist = self._get_targets(rewards, next_states).detach()
+
+        # The critic loss is calculated using a weighted distribution instead of the mean to
+        # arrive at a more accurate result. Cross Entropy loss is used as it is considered to 
+        # be the most ideal for categorical value distributions as utlized in the D4PG
+        critic_loss = -(target_dist * log_probs).sum(-1).mean()
+
+        # Predicts the action for the actor networks loss calculation
+        predicted_action = self.actor_active(states)
+
+        # Predict the value distribution using the critic with regards to action predicted by actor
+        probs = self.critic_active(states, predicted_action)
+
+        # Multiply probabilities by atom values and sum across columns to get Q values
+        expected_reward = (probs * atoms).sum(-1)
+
+        # Calculate the actor network loss (Policy Gradient)
+        # Get the negative of the mean across the expected rewards to do gradient ascent
+        actor_loss = -expected_reward.mean()
+
+        # Execute gradient ascent for the actor
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+        # Execute gradient descent for the critic
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+
+    def _get_targets(self, rewards, next_states):
+        """
+        Calculate Yᵢ from target networks using actor (πθ0)' and crtic (Zw')
+        """
+
+        target_actions = self.actor_target(next_states)
+        target_probs = self.critic_target(next_states, target_actions)
+        # Project the categorical distribution onto the supports
+        projected_probs = self._categorical(rewards, target_probs)
+        return projected_probs
+
+    def _categorical(self, rewards, probs):
+        """
+        Returns the projected value distribution for the input state/action pair
+        """
+
+        # Create local vars to keep code more concise
+        rewards = rewards.unsqueeze(-1)
+        delta_z = (self.v_max - self.v_min) / (num_atoms - 1)
+
+        # Rewards were stored with 0->(N-1) summed, take Reward and add it to
+        # the discounted expected reward at N (ROLLOUT) timesteps
+        projected_atoms = rewards + self.gamma**self.rollout * self.atoms.unsqueeze(0)
+        projected_atoms.clamp_(self.v_min, self.v_max)
+        b = (projected_atoms - self.v_min) / delta_z
+
+        # It seems that on professional level GPUs (for instance on AWS), the
+        # floating point math is accurate to the degree that a tensor printing
+        # as 99.00000 might in fact be 99.000000001 in the backend, perhaps due
+        # to binary imprecision, but resulting in 99.00000...ceil() evaluating
+        # to 100 instead of 99. Forcibly reducing the precision to the minimum
+        # seems to be the only solution to this problem, and presents no issues
+        # to the accuracy of calculating lower/upper_bound correctly.
+        precision = 1
+        b = torch.round(b * 10**precision) / 10**precision
+        lower_bound = b.floor()
+        upper_bound = b.ceil()
+
+        m_lower = (upper_bound + (lower_bound == upper_bound).float() - b) * probs
+        m_upper = (b - lower_bound) * probs
+
+        projected_probs = torch.tensor(np.zeros(probs.size())).to(self.device)
+
+        for idx in range(probs.size(0)):
+            projected_probs[idx].index_add_(0, lower_bound[idx].long(), m_lower[idx].double())
+            projected_probs[idx].index_add_(0, upper_bound[idx].long(), m_upper[idx].double())
+        return projected_probs.float()
+
 
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
@@ -299,3 +492,16 @@ class OUNoise:
         dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
         self.state = x + dx
         return self.state
+
+class GaussianExploration:
+    def __init__(self, action_space, max_sigma=1.0, min_sigma=1.0, decay_period=1000000):
+        self.low  = action_space.low
+        self.high = action_space.high
+        self.max_sigma = max_sigma
+        self.min_sigma = min_sigma
+        self.decay_period = decay_period
+    
+    def get_action(self, action, t=0):
+        sigma  = self.max_sigma - (self.max_sigma - self.min_sigma) * min(1.0, t / self.decay_period)
+        action = action + np.random.normal(size=len(action)) * sigma
+        return np.clip(action, self.low, self.high)
