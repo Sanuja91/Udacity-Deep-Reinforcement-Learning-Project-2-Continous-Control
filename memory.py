@@ -23,7 +23,6 @@ class NStepReplayBuffer:
         self.gamma = params['gamma']
         self.rollout = params['rollout']
         self.agent_count = params['agent_count']
-        self.pretrain = params['pretrain']
         self.batch_size = params['batch_size']
 
         # Creates a deque to handle nstep returns if in trajectory mode
@@ -58,6 +57,7 @@ class NStepReplayBuffer:
             experience = self._create_n_step_experience()
 
         state, next_state, action, reward, done = experience
+        state = state.float()
         action = torch.tensor(action).float()
         reward = torch.tensor(reward).float()
         next_state = torch.tensor(next_state).float()
@@ -79,6 +79,8 @@ class NStepReplayBuffer:
         actions = torch.stack(actions).to(self.device)
         rewards = torch.stack(rewards).to(self.device)
         dones = torch.stack(dones).to(self.device)
+
+        # print("\n\nSTATES", state.shape, "ACTIONS", actions.shape, "REWARDS", rewards.shape, "\n\n")
         return (state, next_state, actions, rewards, dones)
 
     def _create_n_step_experience(self):
@@ -115,4 +117,4 @@ class NStepReplayBuffer:
         return (state, nstep_state, action, returns, done)
 
     def ready(self):
-        return len(self.memory) > self.pretrain
+        return len(self.memory) > self.batch_size

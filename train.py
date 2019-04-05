@@ -25,6 +25,8 @@ def train(agents, params, num_processes):
     env = params['environment']
     achievement = params['achievement']
     add_noise = params['agent_params']['add_noise']
+    pretrain = params['pretrain']
+    pretrain_length = params['pretrain_length']
     num_agents = num_processes
     scores = np.zeros(num_agents)                     # list containing scores from each episode
     scores_window = deque(maxlen=maxlen)              # last N scores
@@ -43,7 +45,14 @@ def train(agents, params, num_processes):
         
         while True:
             states = torch.tensor(states)
-            actions = agents.act(states, add_noise)
+
+            if pretrain and pretrain_length > 0:
+                pretrain_length -= 1
+            else:
+                pretrain = False
+
+            actions = agents.act(states, add_noise, pretrain = pretrain)
+
             env_info = env.step(actions)[brain_name]       # send the action to the environment
             next_states = env_info.vector_observations     # get the next state
             rewards = env_info.rewards                     # get the reward
@@ -52,18 +61,8 @@ def train(agents, params, num_processes):
 
             # adjusted_rewards[adjusted_rewards == 0] = NEGATIVE_REWARD
             # adjusted_rewards = torch.from_numpy(adjusted_rewards).to(device).float().unsqueeze(1)
-            
-            # TODO Make this happen parallely 
 
-            agents.step(states, actions, adjusted_rewards, next_states, dones) 
-            agents.learn()
-            
-            # for a in agents:                               # each agent takes a step, but we give all agents the entire tuple for the experience replay
-            #     a.step(states, actions, rewards, next_states, dones)
-            # for a in agents:                               # each agent takes a step, but we give all agents the entire tuple for the experience replay
-            #     a.learn()
-            
-            # TODO Make this happen parallely 
+            agents.step(states, actions, adjusted_rewards, next_states, dones, pretrain = pretrain) 
 
             scores += rewards                              # update the scores
             states = next_states                           # roll over the state to next time step

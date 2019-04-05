@@ -128,32 +128,33 @@ class DDPGAgent(Agent):
         # Replay memory
         self.memory = params['experience_replay']
     
-    def step(self, states, actions, rewards, next_states, dones):
+    def step(self, states, actions, rewards, next_states, dones, pretrain = False):
         """Save experience in replay memory, and use random sample from buffer to learn."""
-
-        # for state in zip(states):
-        #     print(len(state))
-
-        # Current SARS' stored in short term memory, then stacked for NStep
-        # experience = list(zip(states, actions, rewards, next_states, dones))
 
         self.memory.add((states, actions, rewards, next_states, dones))
         self.t_step += 1
 
         # Learn after done pretraining
-        if self.memory.ready():
+        if pretrain == False:
             self.learn()
 
 
-    def act(self, state, add_noise=True):
+    def act(self, states, add_noise = True, pretrain = False):
         """Returns actions for given state as per current policy."""
-        # self.actor_active.eval()
-        with torch.no_grad():
-            action = self.actor_active(state.to(device).float()).to('cpu').numpy()
-        # self.actor_active.train()
-        if add_noise:
-            action += self.noise.sample()
-        return np.clip(action, -1., 1.)
+
+        # If pretraining is active, the agent gives a random action
+        if pretrain:
+            actions = np.random.uniform(-1., 1., (self.num_agents, self.action_size))
+
+        else:
+            with torch.no_grad():
+                actions = self.actor_active(states.to(device).float()).to('cpu').numpy()
+            if add_noise:
+                actions += self.noise.sample()
+            actions = np.clip(actions, -1., 1.)
+        
+        return actions
+        
 
     def reset(self):
         self.noise.reset()
@@ -163,23 +164,13 @@ class DDPGAgent(Agent):
         self.t_step += 1
         # print(self.t_step)
         self.t_step = (self.t_step + 1) % self.update_every
-        if self.t_step % self.update_every == 0:
-            print("LEARNING", self.t_step)
-            # If enough samples are available in memory, get random subset and learn
-            if self.memory.ready():
-                # print("################################## LEARN XP LENGTH",len(experiences))
-                self.learn_(experiences)
-
-
 
         # If enough samples are available in memory, get random subset and learn
         if self.memory.ready():
-            experiences = self.memory.sample()
-            # print("################################## LEARN XP LENGTH",len(experiences))
-            self.learn_(experiences)
+            self.learn_()
         
         
-    def learn_(self, experiences):
+    def learn_(self):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
         where:
@@ -319,6 +310,7 @@ class D4PGAgent(DDPGAgent):
         self.params = params
         self.update_every = params['update_every']
         self.gamma = params['gamma']
+        self.action_size = params['actor_params']['action_size']
         self.num_agents = params['num_agents']
         self.num_atoms = params['critic_params']['num_atoms']
         self.v_min = params['critic_params']['v_min']
@@ -362,7 +354,7 @@ class D4PGAgent(DDPGAgent):
         
 
               
-    def learn_(self, experiences):
+    def learn_(self):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
         where:
@@ -376,7 +368,7 @@ class D4PGAgent(DDPGAgent):
 
         # Samples from the replay buffer which has calculated the n step returns
         # Next state represents the state at the n'th step
-        states, actions, rewards, next_states, dones = self.memory.sample()
+        states, next_states, actions, rewards, dones = self.memory.sample()
         atoms = self.atoms.unsqueeze(0)
 
         # Calculate log probability distribution using Zw w.r.t. stored actions
@@ -414,6 +406,9 @@ class D4PGAgent(DDPGAgent):
         critic_loss.backward()
         self.critic_optimizer.step()
 
+        # Updates the target networks
+        self._update_networks()
+
 
     def _get_targets(self, rewards, next_states):
         """
@@ -433,11 +428,11 @@ class D4PGAgent(DDPGAgent):
 
         # Create local vars to keep code more concise
         rewards = rewards.unsqueeze(-1)
-        delta_z = (self.v_max - self.v_min) / (num_atoms - 1)
+        delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
 
         # Rewards were stored with 0->(N-1) summed, take Reward and add it to
         # the discounted expected reward at N (ROLLOUT) timesteps
-        projected_atoms = rewards + self.gamma**self.rollout * self.atoms.unsqueeze(0)
+        projected_atoms = rewards + self.gamma**self.memory.rollout * self.atoms.unsqueeze(0)
         projected_atoms.clamp_(self.v_min, self.v_max)
         b = (projected_atoms - self.v_min) / delta_z
 

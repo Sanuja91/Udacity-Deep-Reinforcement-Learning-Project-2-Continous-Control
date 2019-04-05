@@ -38,8 +38,7 @@ experience_params = {
     'seed': seedGenerator,       # seed for the experience replay buffer
     'buffer_size': 100000,       # size of the replay buffer
     'batch_size': 128,           # batch size sampled from the replay buffer
-    # 'pretrain': 3000,             # minimum experience required in replay buffer to start training 
-    'pretrain': 128,             # minimum experience required in replay buffer to start training 
+    # 'pretrain': 128,             # minimum experience required in replay buffer to start training 
     'rollout': 10,                # n step rollout length    
     'agent_count': 20 if MULTI else 1,  
     'gamma': 0.99,
@@ -55,6 +54,8 @@ params = {
     'brain_name': brain_name,    # the brain name of the unity environment
     'achievement': 30.,           # score at which the environment is considered solved
     'environment': env,
+    'pretrain': True,            # whether pretraining with random actions should be done
+    'pretrain_length': 3000,     # minimum experience required in replay buffer to start training 
     'agent_params': {
         'experience_replay': experienceReplay,
         'device': device,
@@ -67,7 +68,7 @@ params = {
         'num_updates': 5,            # we don't necessarily need to run as many rounds of updates as there are agents
         'add_noise': True,          # add noise using 'noise_params'
         'actor_params': {            # actor parameters
-            'norm': True,
+            'norm': False,
             'lr': 1e-4,            # learning rate
             'state_size': state_size,    # size of the state space
             'action_size': action_size,  # size of the action space
@@ -79,7 +80,7 @@ params = {
             # nn.ELU()
         },
         'critic_params': {               # critic parameters
-            'norm': True,
+            'norm': False,
             'lr': 1e-3,                # learning rate
             'weight_decay': 5e-8,          # weight decay
             'state_size': state_size,    # size of the state space
@@ -87,7 +88,7 @@ params = {
             'seed': seedGenerator,               # seed of the network architecture
             'hidden_layers': [512, 512, 128], # hidden layer neurons
             'dropout': 0.05,
-            'action_layer': 1,
+            'action_layer': True,
             'num_atoms': 51,
             'v_min': 0.0, 
             'v_max': 0.5, 

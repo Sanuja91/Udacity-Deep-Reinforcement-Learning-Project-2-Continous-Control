@@ -143,30 +143,43 @@ class D4PGCritic(nn.Module):
                 self.norms.append(nn.LayerNorm(hidden_neurons).to(device))
                 
         self.hidden_layers = nn.ModuleList([nn.Linear(self.state_size, hidden_layers[0])])
-
+        print("\n\n INITIAL HIDDEN LAYERS", hidden_layers)
         # Add a variable number of more hidden layers
-        hidden_layers[self.action_layer-1] += self.num_atoms
+        if self.action_layer:
+            hidden_layers[-1] += self.action_size
+        print("\n\n POST HIDDEN LAYERS", hidden_layers)
+        # For D4PG
+        # hidden_layers.append(self.num_atoms)
+        # print("\n\n############", type(hidden_layers))
+        
         layer_sizes = zip(hidden_layers[:-1], hidden_layers[1:])
         self.hidden_layers.extend([nn.Linear(h1, h2) for h1, h2 in layer_sizes])
-        self.output = nn.Linear(hidden_layers[-1], 1)
+        self.output = nn.Linear(hidden_layers[-1], self.num_atoms)
         self.dropout = nn.Dropout(p = params['dropout'])
 
         initialize_weights(self, WEIGHT_LOW, WEIGHT_HIGH)
 
 
     def forward(self, state, action, log = False):
+        x = state
+        # print("\n\nACTION SHAPE", action.shape)
         for i, linear in enumerate(self.hidden_layers):
+            # print("\nINDEX", i, "SHAPE", x.shape, "LINEAR", linear, "\n")
             if self.batchnorm:
-                x = self.norms[i](state)
-            if i == self.num_atoms:
+                x = self.norms[i](x)
+            
+            if (i == (len(self.hidden_layers))) & self.action_layer:
+                # print("\n\n\nAT ACTION LAYER\n\n\n")
                 x = torch.cat((x, action), dim=1)
             x = linear(x)
             x = self.act_fn[i](x)
-            x = self.dropout(x)
+            # x = self.dropout(x)
         
+        # print("\nFINAL LAYER", "SHAPE", x.shape, "\n")
         if self.batchnorm:
             x = self.norms[i+1](x)
-        x = self.act_fn[-1](self.output(x))
+        # x = self.act_fn[-1](self.output(x))
+        x = self.output(x)
 
         # Only calculate the type of softmax needed by the foward call, to save
         # a modest amount of calculation across 1000s of timesteps.
