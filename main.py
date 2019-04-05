@@ -21,7 +21,6 @@ environment_params = {
     'train_mode': True,
     'buffer_size': 100000,       # size of the replay buffer
     'batch_size': 128,           # batch size sampled from the replay buffer
-    'train_batch_size':3000,     # minimum experience required in replay buffer to start training 
     'rollout': 5,                # n step rollout length    
     'agent_count': 20 if MULTI else 1,  
     'gamma': 0.99,
@@ -38,7 +37,6 @@ experience_params = {
     'seed': seedGenerator,       # seed for the experience replay buffer
     'buffer_size': 100000,       # size of the replay buffer
     'batch_size': 128,           # batch size sampled from the replay buffer
-    # 'pretrain': 128,             # minimum experience required in replay buffer to start training 
     'rollout': 10,                # n step rollout length    
     'agent_count': 20 if MULTI else 1,  
     'gamma': 0.99,
@@ -55,7 +53,7 @@ params = {
     'achievement': 30.,           # score at which the environment is considered solved
     'environment': env,
     'pretrain': True,            # whether pretraining with random actions should be done
-    'pretrain_length': 3000,     # minimum experience required in replay buffer to start training 
+    'pretrain_length': 128,     # minimum experience required in replay buffer to start training 
     'agent_params': {
         'experience_replay': experienceReplay,
         'device': device,
@@ -75,14 +73,12 @@ params = {
             'seed': seedGenerator,                # seed of the network architecture
             'hidden_layers': [512, 512, 128], # hidden layer neurons
             'dropout': 0.05,
-            # 'act_fn': [F.leaky_relu, F.leaky_relu, F.F.leaky_relu]
             'act_fn': [nn.ReLU(), nn.ReLU(), nn.Tanh()]
-            # nn.ELU()
         },
         'critic_params': {               # critic parameters
             'norm': False,
             'lr': 1e-3,                # learning rate
-            'weight_decay': 5e-8,          # weight decay
+            'weight_decay': 0.0001,          # weight decay
             'state_size': state_size,    # size of the state space
             'action_size': action_size,  # size of the action space
             'seed': seedGenerator,               # seed of the network architecture
@@ -95,13 +91,19 @@ params = {
             # 'act_fn': [F.leaky_relu, F.leaky_relu, lambda x: x]
             'act_fn': [nn.ReLU(), nn.ReLU(), lambda x: x]
         },
-        'noise_params': {                  # parameters for the noisy process
+        'ou_noise_params': {               # parameters for the Ornstein Uhlenbeck process
             'mu': 0.,                      # mean
             'theta': 0.15,                 # theta value for the ornstein-uhlenbeck process
             'sigma': 0.2,                  # variance
             'seed': seedGenerator,         # seed
             'action_size': action_size
-        }
+        },
+        'ge_noise_params': {               # parameters for the Gaussian Exploration process                  
+            'max_epsilon': 1,                 
+            'min_epsilon': 0.05,         
+            'decay_rate': 0.00   
+        },
+        
     }
 }
 

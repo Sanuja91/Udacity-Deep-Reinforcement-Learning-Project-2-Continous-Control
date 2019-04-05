@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from models import Actor, Critic, D4PGCritic
-
+from noise import OUNoise, GaussianExploration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Agent(object):
@@ -150,14 +150,14 @@ class DDPGAgent(Agent):
             with torch.no_grad():
                 actions = self.actor_active(states.to(device).float()).to('cpu').numpy()
             if add_noise:
-                actions += self.noise.sample()
-            actions = np.clip(actions, -1., 1.)
+                actions += self.noise.create_noise(actions.shape)
+            actions = np.clip(actions, -1., 1.)        
         
         return actions
         
 
-    def reset(self):
-        self.noise.reset()
+    # def reset(self):
+    #     self.noise.reset()
 
     def learn(self):        
         # Learn every UPDATE_EVERY time steps.
@@ -346,14 +346,12 @@ class D4PGAgent(DDPGAgent):
                                            weight_decay=params['critic_params']['weight_decay'])
 
         # Noise process
-        self.noise = OUNoise(self.params['noise_params'])
+        self.noise = GaussianExploration(params['ge_noise_params'])
 
         # Replay memory
         self.memory = params['experience_replay']
 
-        
-
-              
+      
     def learn_(self):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
@@ -457,46 +455,3 @@ class D4PGAgent(DDPGAgent):
             projected_probs[idx].index_add_(0, lower_bound[idx].long(), m_lower[idx].double())
             projected_probs[idx].index_add_(0, upper_bound[idx].long(), m_upper[idx].double())
         return projected_probs.float()
-
-
-class OUNoise:
-    """Ornstein-Uhlenbeck process."""
-
-    def __init__(self, params):
-        """Initialize parameters and noise process."""
-
-        mu = params['mu']
-        theta = params['theta']
-        sigma = params['sigma']
-        seed = params['seed']
-        size = params['action_size']
-        
-        self.mu = mu * np.ones(size)
-        self.theta = theta
-        self.sigma = sigma
-        self.seed = random.seed(seed.next())
-        self.reset()
-
-    def reset(self):
-        """Reset the internal state (= noise) to mean (mu)."""
-        self.state = copy.copy(self.mu)
-
-    def sample(self):
-        """Update internal state and return it as a noise sample."""
-        x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
-        self.state = x + dx
-        return self.state
-
-class GaussianExploration:
-    def __init__(self, action_space, max_sigma=1.0, min_sigma=1.0, decay_period=1000000):
-        self.low  = action_space.low
-        self.high = action_space.high
-        self.max_sigma = max_sigma
-        self.min_sigma = min_sigma
-        self.decay_period = decay_period
-    
-    def get_action(self, action, t=0):
-        sigma  = self.max_sigma - (self.max_sigma - self.min_sigma) * min(1.0, t / self.decay_period)
-        action = action + np.random.normal(size=len(action)) * sigma
-        return np.clip(action, self.low, self.high)

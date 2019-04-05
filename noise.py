@@ -1,44 +1,42 @@
 import numpy as np
 
-class GaussianNoise(object):
-    def __init__(self, dimension, num_epochs, mu=0.0, var=1):
-        self.mu = mu
-        self.var = var
-        self.dimension = dimension
-        self.epochs = 0
-        self.num_epochs = num_epochs
-        self.min_epsilon = 0.01 # minimum exploration probability
-        self.epsilon = 0.3
-        self.decay_rate = 5.0/num_epochs # exponential decay rate for exploration prob
-        self.iter = 0
+class OUNoise:
+    """Ornstein-Uhlenbeck process."""
 
-    def sample(self):
-        x = self.epsilon * np.random.normal(self.mu, self.var, size=self.dimension)
-        return x
+    def __init__(self, params):
+        """Initialize parameters and noise process."""
 
-    def reset(self):
-        self.epsilon = self.min_epsilon + (1.0 - self.min_epsilon)*np.exp(-self.decay_rate*self.iter)
+        mu = params['mu']
+        theta = params['theta']
+        sigma = params['sigma']
+        seed = params['seed']
+        size = params['action_size']
         
-class OrnsteinUhlenbeckProcess(object):
-    def __init__(self, dimension, num_steps, theta=0.25, mu=0.0, sigma=0.05, dt=0.01):
+        self.mu = mu * np.ones(size)
         self.theta = theta
-        self.mu = mu
         self.sigma = sigma
-        self.dt = dt
-        self.x = np.zeros((dimension,))
-        self.iter = 0
-        self.num_steps = num_steps
-        self.dimension = dimension
-        self.min_epsilon = 0.01 # minimum exploration probability
-        self.epsilon = 1.0
-        self.decay_rate = 5.0/num_steps # exponential decay rate for exploration prob
-    
-    def sample(self):
-        self.x = self.x + self.theta*(self.mu-self.x)*self.dt + \
-                                       self.sigma*np.sqrt(self.dt)*np.random.normal(size=self.dimension)
-        return self.epsilon*self.x
-    
+        self.seed = random.seed(seed.next())
+        self.reset()
+
     def reset(self):
-        self.x = 0*self.x
-        self.iter += 1
-        self.epsilon = self.min_epsilon + (1.0 - self.min_epsilon)*np.exp(-self.decay_rate*self.iter)
+        """Reset the internal state (= noise) to mean (mu)."""
+        self.state = copy.copy(self.mu)
+
+    def create_noise(self):
+        """Update internal state and return it as a noise sample."""
+        x = self.state
+        dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
+        self.state = x + dx
+        return self.state
+
+class GaussianExploration:
+    def __init__(self, params):
+        self.epsilon = params['max_epsilon']
+        self.min_epsilon = params['min_epsilon']
+        self.decay_rate = params['decay_rate']
+    
+    def create_noise(self, shape):
+        epsilon  = max(self.epsilon, self.min_epsilon)  
+
+        self.epsilon *= self.decay_rate     # decay epsilon
+        return np.random.normal(0, 1, shape) * epsilon
