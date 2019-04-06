@@ -40,13 +40,14 @@ class NStepReplayBuffer:
         it holds n step experiences until the rollout length is reached following 
         which a discounted n step return is calculated (new reward)
         """
-        state, action, reward, next_state, done = experience
-
+        states, actions, rewards, next_states, dones = experience
+        # print("\n\n#### INITIAL STATE", states.shape, "ACTION", actions.shape, "REWARD", rewards.shape, "\n\n")
         # If rollouts > 1, then its a trajectory not an episode
         if self.rollout > 1:
             for actor in range(self.agent_count):
+                # print("\n\n#### NEXT STATE", states[actor].shape, "ACTION", actions[actor].shape, "REWARD", rewards[actor], "\n\n")
                 # Adds experience into n step trajectory
-                self.n_step[actor].append((state[actor], action[actor], reward[actor], next_state[actor], done[actor]))
+                self.n_step[actor].append((states[actor], actions[actor], rewards[actor], next_states[actor], dones[actor]))
 
             # Abort process over here if trajectory length
             # worth of experiences haven't been reached
@@ -54,15 +55,34 @@ class NStepReplayBuffer:
                 return
             
             # Converts the trajectory into and n step experience
-            experience = self._create_n_step_experience()
+            (state, next_state, action, reward, done) = self._create_n_step_experience()
+    
+            state = state.float()
+            action = torch.tensor(action).float()
+            reward = torch.tensor(reward).float()
+            next_state = torch.tensor(next_state).float()
+            done = torch.tensor(done).float()
+            self.memory.append((state, next_state, action, reward, done))
+        else:
+            for actor in range(self.agent_count):
+                # print("\n\n#### NEXT STATE", state.shape, "ACTION", action.shape, "REWARD", reward[actor], "\n\n")
+                state = states[actor].float()
+                action = torch.tensor(actions[actor]).float()
+                reward = torch.tensor(rewards[actor]).float()
+                next_state = torch.tensor(next_states[actor]).float()
+                done = torch.tensor(dones[actor]).float()
 
-        state, next_state, action, reward, done = experience
-        state = state.float()
-        action = torch.tensor(action).float()
-        reward = torch.tensor(reward).float()
-        next_state = torch.tensor(next_state).float()
-        done = torch.tensor(done).float()
-        self.memory.append((state, next_state, action, reward, done))
+                # Adds experience into n step trajectory
+                self.memory.append((state, next_state, action, reward, done))
+  
+        # state, next_state, action, reward, done = experience
+        # print("STATE", state.shape, "ACTION", action.shape, "REWARD", reward.shape)
+        # state = state.float()
+        # action = torch.tensor(action).float()
+        # reward = torch.tensor(reward).float()
+        # next_state = torch.tensor(next_state).float()
+        # done = torch.tensor(done).float()
+        # self.memory.append((state, next_state, action, reward, done))
 
     def sample(self):
         """

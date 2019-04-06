@@ -208,9 +208,9 @@ class Actor(nn.Module):
         self.action_size = params['action_size']
         self.seed = torch.manual_seed(params['seed'].next())
 
-        FC1 = 128
-        FC2 = 128
-        FC3 = 50
+        FC1 = 300
+        FC2 = 400
+        FC3 = 128
 
         # Fully connected layers
         self.fc1 = nn.Sequential(
@@ -284,9 +284,9 @@ class D4PGCritic(nn.Module):
         self.batchnorm = params['norm']
         self.num_atoms = params['num_atoms']
         
-        FC1 = 128
-        FC2 = 128
-        FC3 = 50
+        FC1 = 300
+        FC2 = 400
+        FC3 = 128
 
         # Fully connected layers
         self.fc1 = nn.Sequential(
@@ -317,6 +317,7 @@ class D4PGCritic(nn.Module):
         x = self.fc1(state)
         x = self.fc2(x)
         x = torch.cat((x, action), dim=1)
+        # print("FC2", x.shape)
         x = self.fc3(x)
 
         

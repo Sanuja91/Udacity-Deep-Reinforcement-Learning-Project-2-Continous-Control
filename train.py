@@ -10,7 +10,6 @@ from utilities import update_csv
 from tensorboardX.writer import SummaryWriter
 
 
-NEGATIVE_REWARD = -0.001
 PARAMETER_NOISE = 0.01
 
 def train(agents, params, num_processes):
@@ -39,7 +38,12 @@ def train(agents, params, num_processes):
     tic = time.time()
     best_min_score = 0.0
     timesteps = 0
-    for i_episode in range(1, n_episodes+1):
+
+    episode_start = 1
+    if params['load_agent']:
+        episode_start, timesteps = agents.load_agent()
+
+    for i_episode in range(episode_start, n_episodes+1):
         timestep = time.time()
         states = env_info.vector_observations
         scores = np.zeros(num_agents)
@@ -54,19 +58,21 @@ def train(agents, params, num_processes):
             else:
                 pretrain = False
 
-            actions = agents.act(states, add_noise, pretrain = pretrain)
-
+            actions, noise_epsilon = agents.act(states, add_noise, pretrain = pretrain)
+            
             env_info = env.step(actions)[brain_name]       # send the action to the environment
             next_states = env_info.vector_observations     # get the next state
             rewards = env_info.rewards                     # get the reward
             dones = env_info.local_done                    # see if episode has finished
             adjusted_rewards = np.array(env_info.rewards)
 
-            # adjusted_rewards[adjusted_rewards == 0] = NEGATIVE_REWARD
+            if params['shape_rewards']:
+                adjusted_rewards[adjusted_rewards == 0] = params['negative_reward']
             # adjusted_rewards = torch.from_numpy(adjusted_rewards).to(device).float().unsqueeze(1)
 
             actor_loss, critic_loss = agents.step(states, actions, adjusted_rewards, next_states, dones, pretrain = pretrain) 
             if actor_loss != None and critic_loss != None:
+                writer.add_scalar('noise_epsilon', noise_epsilon, timesteps)
                 writer.add_scalar('rewards', np.mean(rewards), timesteps)
                 writer.add_scalar('actor_loss', actor_loss, timesteps)
                 writer.add_scalar('critic_loss', critic_loss, timesteps)
@@ -78,6 +84,12 @@ def train(agents, params, num_processes):
                 
             print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'.format(timesteps, np.mean(scores), np.min(scores), np.max(scores)), end="")  
             timesteps += 1 
+
+            # Fills the buffer with experiences resulting from random actions 
+            # to encourage exploration
+            if timesteps % params['random_fill_every'] == 0:
+                pretrain = True
+                pretrain = params['pretrain_length']
             
         score = np.mean(scores)
         scores_episode.append(score)
@@ -86,10 +98,14 @@ def train(agents, params, num_processes):
 
         print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores), np.min(scores), np.max(scores), time.time() - timestep), end="\n")
         if i_episode % 20 == 0:
-            agents.save_agent(np.mean(scores_window), i_episode, save_history = True)
+            agents.save_agent(np.mean(scores_window), i_episode, timesteps, save_history = True)
         else:
-            agents.save_agent(np.mean(scores_window), i_episode, save_history = False)
-        writer.add_scalar('mean_score', np.mean(scores), i_episode)
+            agents.save_agent(np.mean(scores_window), i_episode, timesteps, save_history = False)
+
+        writer.add_scalars('scores', {'mean': np.mean(scores),
+                                      'min': np.min(scores),
+                                      'max': np.max(scores)}, i_episode)
+                                        
         update_csv(name, i_episode, np.mean(scores), np.mean(scores))
         if i_episode % 100 == 0:
             toc = time.time()

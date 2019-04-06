@@ -157,7 +157,7 @@ class DDPGAgent(Agent):
             actions = np.clip(actions, -1., 1.)        
             # print(actions)
         
-        return actions
+        return actions, self.noise.epsilon
         
 
     # def reset(self):
@@ -230,10 +230,9 @@ class DDPGAgent(Agent):
     #         for param in self.critic_active.parameters():
     #             param.add_(torch.randn(param.size()).to(device) * noise)
 
-
-    def save_agent(self, average_reward, episode, save_history = False):
+    def save_agent(self, average_reward, episode, timesteps, save_history = False):
         """Save the checkpoint"""
-        checkpoint = {'actor_state_dict': self.actor_target.state_dict(), 'critic_state_dict': self.critic_target.state_dict(), 'average_reward': average_reward, 'episode': episode}
+        checkpoint = {'actor_state_dict': self.actor_target.state_dict(), 'critic_state_dict': self.critic_target.state_dict(), 'average_reward': average_reward, 'episode': episode, 'timesteps': timesteps}
         
         if not os.path.exists("checkpoints"):
             os.makedirs("checkpoints") 
@@ -262,10 +261,13 @@ class DDPGAgent(Agent):
 
             average_reward = checkpoint['average_reward']
             episode = checkpoint['episode']
+            timesteps = checkpoint['timesteps']
             
             print("Loading checkpoint - Average Reward {} at Episode {}".format(average_reward, episode))
+            return episode + 1, timesteps
         else:
             print("\nCannot find {} checkpoint... Proceeding to create fresh neural network\n".format(self.name))   
+            return 1, 0
 
     
     def _update_networks(self):
@@ -347,10 +349,6 @@ class D4PGAgent(DDPGAgent):
         
         print("\n################ CRITIC ################\n")
         print(self.critic_active)
-
-        
-        if params['load_agent']:
-            self.load_agent()
 
         self.critic_optimizer = optim.Adam(self.critic_active.parameters(),
                                            lr=params['critic_params']['lr'],
