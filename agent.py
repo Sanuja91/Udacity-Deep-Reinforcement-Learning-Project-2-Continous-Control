@@ -102,8 +102,11 @@ class DDPGAgent(Agent):
         self.update_every = params['update_every']
         self.gamma = params['gamma']
         self.num_agents = params['num_agents']
-        self.update_type = params['update_type']
+        self.update_target_type = params['update_target_type']
         self.name = "BATCH DDPG"
+        self.update_target_every = params['update_target_every']
+        self.update_every = params['update_every']
+        self.update_intensity = params['update_intensity']
         
         # Actor Network (w/ Target Network)
         self.actor_active = Actor(params['actor_params']).to(device)
@@ -153,7 +156,7 @@ class DDPGAgent(Agent):
 
         else:
             with torch.no_grad():
-                actions = self.actor_active(states.to(device).float()).to('cpu').numpy()
+                actions = self.actor_active(states.to(device).float()).detach().to('cpu').numpy()
             if add_noise:
                 actions += self.noise.create_noise(actions.shape)
             actions = np.clip(actions, -1., 1.)        
@@ -166,11 +169,6 @@ class DDPGAgent(Agent):
     #     self.noise.reset()
 
     def learn(self):        
-        # Learn every UPDATE_EVERY time steps.
-        self.t_step += 1
-        # print(self.t_step)
-        self.t_step = (self.t_step + 1) % self.update_every
-
         # If enough samples are available in memory, get random subset and learn
         if self.memory.ready():
             return self.learn_()
@@ -279,10 +277,10 @@ class DDPGAgent(Agent):
         x timesteps
         """
 
-        if self.update_type == "soft":
+        if self.update_target_type == "soft":
             self._soft_update(self.actor_active, self.actor_target)
             self._soft_update(self.critic_active, self.critic_target)
-        elif self.t_step % self.update_every == 0:
+        elif self.update_target_type == "hard":
             self._hard_update(self.actor_active, self.actor_target)
             self._hard_update(self.critic_active, self.critic_target)
 
@@ -319,14 +317,16 @@ class D4PGAgent(DDPGAgent):
         # super().__init__(params)
 
         self.params = params
+        self.update_target_every = params['update_target_every']
         self.update_every = params['update_every']
+        self.update_intensity = params['update_intensity']
         self.gamma = params['gamma']
         self.action_size = params['actor_params']['action_size']
         self.num_agents = params['num_agents']
         self.num_atoms = params['critic_params']['num_atoms']
         self.v_min = params['critic_params']['v_min']
         self.v_max = params['critic_params']['v_max']
-        self.update_type = params['update_type']
+        self.update_target_type = params['update_target_type']
         self.device = params['device']
         self.name = params['name']
         self.lr_reduction_factor = params['lr_reduction_factor']
@@ -360,7 +360,7 @@ class D4PGAgent(DDPGAgent):
 
                                                 )
             self.critic_scheduler = ReduceLROnPlateau(self.critic_optimizer, 
-                                                    mode = 'min',
+                                                    mode = 'max',
                                                     factor = params['lr_reduction_factor'],
                                                     patience = params['lr_patience_factor'],
                                                     verbose = False,
@@ -379,18 +379,16 @@ class D4PGAgent(DDPGAgent):
         print("\n################ CRITIC ################\n")
         print(self.critic_active)
 
-
-
         # Noise process
         self.noise = GaussianExploration(params['ge_noise_params'])
 
         # Replay memory
         self.memory = params['experience_replay']
 
-    def step_lr(self, actor_loss, critic_loss):
+    def step_lr(self, score):
         """Steps the learning rate scheduler"""
-        self.actor_scheduler.step(actor_loss)
-        self.critic_scheduler.step(critic_loss)
+        self.actor_scheduler.step(score)
+        self.critic_scheduler.step(score)
         self.lr_steps += 1
     
     def get_lr(self):
@@ -413,53 +411,61 @@ class D4PGAgent(DDPGAgent):
         ======
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
-        """
+        """        
+        actor_loss = None
+        critic_loss = None
+        if self.t_step % self.update_every == 0:
 
-        # Samples from the replay buffer which has calculated the n step returns
-        # Next state represents the state at the n'th step
-        states, next_states, actions, rewards, dones = self.memory.sample()
-        atoms = self.atoms.unsqueeze(0)
+            # Samples from the replay buffer which has calculated the n step returns
+            # Next state represents the state at the n'th step
+            states, next_states, actions, rewards, dones = self.memory.sample()
 
-        # Calculate log probability distribution using Zw w.r.t. stored actions
-        log_probs = self.critic_active(states, actions, log=True)
+            # Learns multiple times with the same set of experience
+            for _ in range(self.update_intensity):
+                atoms = self.atoms.unsqueeze(0)
 
-        # Calculate the projected log probabilities from the target actor and critic networks
-        # Tensors are not required for backpropogation hence are detached for performance
-        target_dist = self._get_targets(rewards, next_states).detach()
+                # Calculate log probability distribution using Zw w.r.t. stored actions
+                log_probs = self.critic_active(states, actions, log=True)
 
-        # The critic loss is calculated using a weighted distribution instead of the mean to
-        # arrive at a more accurate result. Cross Entropy loss is used as it is considered to 
-        # be the most ideal for categorical value distributions as utlized in the D4PG
-        critic_loss = -(target_dist * log_probs).sum(-1).mean()
+                # Calculate the projected log probabilities from the target actor and critic networks
+                # Tensors are not required for backpropogation hence are detached for performance
+                target_dist = self._get_targets(rewards, next_states).detach()
 
-        # Predicts the action for the actor networks loss calculation
-        predicted_action = self.actor_active(states)
+                # The critic loss is calculated using a weighted distribution instead of the mean to
+                # arrive at a more accurate result. Cross Entropy loss is used as it is considered to 
+                # be the most ideal for categorical value distributions as utlized in the D4PG
+                critic_loss = -(target_dist * log_probs).sum(-1).mean()
 
-        # Predict the value distribution using the critic with regards to action predicted by actor
-        probs = self.critic_active(states, predicted_action)
+                # Predicts the action for the actor networks loss calculation
+                predicted_action = self.actor_active(states)
 
-        # Multiply probabilities by atom values and sum across columns to get Q values
-        expected_reward = (probs * atoms).sum(-1)
+                # Predict the value distribution using the critic with regards to action predicted by actor
+                probs = self.critic_active(states, predicted_action)
 
-        # Calculate the actor network loss (Policy Gradient)
-        # Get the negative of the mean across the expected rewards to do gradient ascent
-        actor_loss = -expected_reward.mean()
+                # Multiply probabilities by atom values and sum across columns to get Q values
+                expected_reward = (probs * atoms).sum(-1)
 
-        # Execute gradient ascent for the actor
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
+                # Calculate the actor network loss (Policy Gradient)
+                # Get the negative of the mean across the expected rewards to do gradient ascent
+                actor_loss = -expected_reward.mean()
 
-        # Execute gradient descent for the critic
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
+                # Execute gradient ascent for the actor
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                self.actor_optimizer.step()
 
-        # Updates the target networks
-        self._update_networks()
+                # Execute gradient descent for the critic
+                self.critic_optimizer.zero_grad()
+                critic_loss.backward()
+                self.critic_optimizer.step()
+                actor_loss = actor_loss.item()
+                critic_loss = critic_loss.item()
 
-        return actor_loss.item(), critic_loss.item()
+        # Updates the target networks every n steps
+        if self.t_step % self.update_target_every == 0:
+            self._update_networks()  
 
+        return actor_loss, critic_loss       
 
     def _get_targets(self, rewards, next_states):
         """

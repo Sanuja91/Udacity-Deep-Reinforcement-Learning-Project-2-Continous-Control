@@ -19,7 +19,7 @@ environment_params = {
     'multiple_agents': True,      
     'no_graphics': False,
     'train_mode': True,
-    'offline': False,
+    'offline': True,
     'agent_count': 20 if MULTI else 1,  
     'device': device
 }
@@ -33,7 +33,7 @@ seedGenerator.next()
 experience_params = {
     'seed': seedGenerator,       # seed for the experience replay buffer
     'buffer_size': 100000,       # size of the replay buffer
-    'batch_size': 128,           # batch size sampled from the replay buffer
+    'batch_size': 1024,           # batch size sampled from the replay buffer
     'rollout': 1,                # n step rollout length    
     'agent_count': 20 if MULTI else 1,  
     'gamma': 0.99,
@@ -48,7 +48,7 @@ params = {
     'brain_name': brain_name,    # the brain name of the unity environment
     'achievement': 30.,           # score at which the environment is considered solved
     'environment': env,
-    'pretrain': True,            # whether pretraining with random actions should be done
+    'pretrain': False,            # whether pretraining with random actions should be done
     'pretrain_length': 5000,     # minimum experience required in replay buffer to start training 
     'random_fill': False,        # basically repeat pretrain at specific times to encourage further exploration
     'random_fill_every': 10000,
@@ -57,21 +57,23 @@ params = {
     'log_dir': 'runs/',
     'load_agent': True,
     'agent_params': {
-        'name': 'D4PG - ReduceLROnPlateau',
+        'name': 'D4PG - Infrequent Instense Updates',
         'experience_replay': experienceReplay,
         'device': device,
         'seed': seedGenerator,
         'num_agents': num_agents,    # number of agents in the environment
         'gamma': 0.99,               # discount factor
         'tau': 0.001,                # mixing rate soft-update of target parameters
-        'update_every': 350,         # update every n-th step
-        'update_type': 'hard',       # should the update be soft at every time step or hard at every x timesteps
+        'update_target_every': 350,  # update the target network every n-th step
+        'update_every': 20,          # update the active network every n-th step
+        'update_intensity': 10,      # learns from the same experiences several times
+        'update_target_type': 'hard',# should the update be soft at every time step or hard at every x timesteps
         'add_noise': True,           # add noise using 'noise_params'
         'schedule_lr': True,         # schedule learning rates 
         'lr_steps': 30,              # step iterations to cycle lr using cosine
         'lr_reset_every': 5000,      # steps learning rate   
-        'lr_reduction_factor': 0.5,  # reduce lr on plateau reduction factor
-        'lr_patience_factor': 5000,   # reduce lr after x timesteps not changing tracked item
+        'lr_reduction_factor': 0.9,  # reduce lr on plateau reduction factor
+        'lr_patience_factor': 5,     # reduce lr after x (timesteps/episodes) not changing tracked item
         'actor_params': {            # actor parameters
             'norm': True,
             'lr': 1e-4,              # learning rate

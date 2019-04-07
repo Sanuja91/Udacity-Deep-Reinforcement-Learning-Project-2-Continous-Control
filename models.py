@@ -208,9 +208,10 @@ class Actor(nn.Module):
         self.action_size = params['action_size']
         self.seed = torch.manual_seed(params['seed'].next())
 
-        FC1 = 300
-        FC2 = 400
+        FC1 = 400
+        FC2 = 300
         FC3 = 128
+        FC4 = 64
 
         # Fully connected layers
         self.fc1 = nn.Sequential(
@@ -228,7 +229,21 @@ class Actor(nn.Module):
         )
 
         self.fc3 = nn.Sequential(
-            nn.Linear(FC2, self.action_size),                             # add the weights from the previous timestep    
+            nn.Linear(FC2, FC3),                               
+            # nn.LayerNorm(self.action_size),
+            nn.ReLU(),
+            # # nn.Dropout(dropout_rate)
+        )
+
+        self.fc4 = nn.Sequential(
+            nn.Linear(FC3, FC4),                               
+            # nn.LayerNorm(self.action_size),
+            nn.ReLU(),
+            # # nn.Dropout(dropout_rate)
+        )
+
+        self.fc5 = nn.Sequential(
+            nn.Linear(FC4, self.action_size),                             # add the weights from the previous timestep    
             # nn.LayerNorm(self.action_size),
             nn.Tanh(),
             # # nn.Dropout(dropout_rate)
@@ -239,6 +254,8 @@ class Actor(nn.Module):
         x = self.fc1(state)
         x = self.fc2(x)
         x = self.fc3(x)
+        x = self.fc4(x)
+        x = self.fc5(x)
         return x
 
 
@@ -284,9 +301,10 @@ class D4PGCritic(nn.Module):
         self.batchnorm = params['norm']
         self.num_atoms = params['num_atoms']
         
-        FC1 = 300
-        FC2 = 400
+        FC1 = 400
+        FC2 = 300
         FC3 = 128
+        FC4 = 64
 
         # Fully connected layers
         self.fc1 = nn.Sequential(
@@ -304,7 +322,21 @@ class D4PGCritic(nn.Module):
         )
 
         self.fc3 = nn.Sequential(
-            nn.Linear(FC2 + self.action_size, self.num_atoms),                             # add the weights from the previous timestep    
+            nn.Linear(FC2, FC3),
+            # nn.LayerNorm(FC2),
+            nn.ReLU(),
+            # # nn.Dropout(dropout_rate)
+        )
+
+        self.fc4 = nn.Sequential(
+            nn.Linear(FC3, FC4),
+            # nn.LayerNorm(FC2),
+            nn.ReLU(),
+            # # nn.Dropout(dropout_rate)
+        )
+
+        self.fc5 = nn.Sequential(
+            nn.Linear(FC4 + self.action_size, self.num_atoms),                             # add the weights from the previous timestep    
             # nn.LayerNorm(self.num_atoms),
             nn.ReLU(),
             # # nn.Dropout(dropout_rate)
@@ -316,9 +348,10 @@ class D4PGCritic(nn.Module):
 
         x = self.fc1(state)
         x = self.fc2(x)
-        x = torch.cat((x, action), dim=1)
-        # print("FC2", x.shape)
         x = self.fc3(x)
+        x = self.fc4(x)
+        x = torch.cat((x, action), dim=1)
+        x = self.fc5(x)     # here x is equivilent to logits
 
         
         # Only calculate the type of softmax needed by the foward call, to save

@@ -87,19 +87,16 @@ def train(agents, params, num_processes):
                 writer.add_scalar('critic_loss', critic_loss, timesteps)
                 writer.add_scalar('actor_lr', actor_lr, timesteps)
                 writer.add_scalar('critic_lr', critic_lr, timesteps)
-                
-                agents.step_lr(actor_loss, critic_loss)
 
             # if params['agent_params']['schedule_lr'] and timesteps % (params['agent_params']['lr_reset_every'] // params['agent_params']['lr_steps']) == 0:
                 
-                
-
             scores += rewards                              # update the scores
             states = next_states                           # roll over the state to next time step
             if np.any(dones):                              # exit loop if episode finished
                 break
                 
             print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'.format(timesteps, np.mean(scores), np.min(scores), np.max(scores)), end="")  
+  
             timesteps += 1 
 
             # Fills the buffer with experiences resulting from random actions 
@@ -114,16 +111,20 @@ def train(agents, params, num_processes):
      
 
         print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores), np.min(scores), np.max(scores), time.time() - timestep), end="\n")
+        
         if i_episode % 20 == 0:
             agents.save_agent(np.mean(scores_window), i_episode, timesteps, save_history = True)
         else:
             agents.save_agent(np.mean(scores_window), i_episode, timesteps, save_history = False)
+
 
         writer.add_scalars('scores', {'mean': np.mean(scores),
                                       'min': np.min(scores),
                                       'max': np.max(scores)}, timesteps)
                                         
         update_csv(name, i_episode, np.mean(scores), np.mean(scores))
+
+        agents.step_lr(np.mean(scores))
         if i_episode % 100 == 0:
             toc = time.time()
             print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores_window), np.min(scores_window), np.max(scores_window), toc - tic), end="")

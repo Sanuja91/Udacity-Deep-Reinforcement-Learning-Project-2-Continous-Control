@@ -38,5 +38,4 @@ class GaussianExploration:
     def create_noise(self, shape):
         self.epsilon  = max(self.epsilon, self.min_epsilon)  
         self.epsilon *= self.decay_rate     # decay epsilon
-        
         return np.random.normal(0, 1, shape) * self.epsilon
