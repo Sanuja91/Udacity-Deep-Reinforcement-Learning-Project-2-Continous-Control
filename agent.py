@@ -163,10 +163,7 @@ class DDPGAgent(Agent):
             # print(actions)
         
         return actions, self.noise.epsilon
-        
-
-    # def reset(self):
-    #     self.noise.reset()
+    
 
     def learn(self):        
         # If enough samples are available in memory, get random subset and learn
@@ -221,14 +218,6 @@ class DDPGAgent(Agent):
         self.soft_update(self.critic_active, self.critic_target)
         self.soft_update(self.actor_active, self.actor_target) 
 
-
-    # def add_param_noise(self, noise):
-    #     """Adds noise to the weights of the agent"""
-    #     with torch.no_grad():
-    #         for param in self.actor_active.parameters():
-    #             param.add_(torch.randn(param.size()).to(device) * noise)
-    #         for param in self.critic_active.parameters():
-    #             param.add_(torch.randn(param.size()).to(device) * noise)
 
     def save_agent(self, average_reward, episode, timesteps, save_history = False):
         """Save the checkpoint"""
@@ -319,6 +308,7 @@ class D4PGAgent(DDPGAgent):
         self.params = params
         self.update_target_every = params['update_target_every']
         self.update_every = params['update_every']
+        self.actor_update_every_multiplier = params['actor_update_every_multiplier']
         self.update_intensity = params['update_intensity']
         self.gamma = params['gamma']
         self.action_size = params['actor_params']['action_size']
@@ -365,13 +355,6 @@ class D4PGAgent(DDPGAgent):
                                                     patience = params['lr_patience_factor'],
                                                     verbose = False,
                                                  )
-
-
-        # self.critic_optimizer = optim.Adam(self.critic_active.parameters(),
-        #                                    lr=params['critic_params']['lr'],
-        #                                    weight_decay=params['critic_params']['weight_decay'])
-        
-
 
         print("\n################ ACTOR ################\n")
         print(self.actor_active)
@@ -436,30 +419,34 @@ class D4PGAgent(DDPGAgent):
                 # be the most ideal for categorical value distributions as utlized in the D4PG
                 critic_loss = -(target_dist * log_probs).sum(-1).mean()
 
-                # Predicts the action for the actor networks loss calculation
-                predicted_action = self.actor_active(states)
-
-                # Predict the value distribution using the critic with regards to action predicted by actor
-                probs = self.critic_active(states, predicted_action)
-
-                # Multiply probabilities by atom values and sum across columns to get Q values
-                expected_reward = (probs * atoms).sum(-1)
-
-                # Calculate the actor network loss (Policy Gradient)
-                # Get the negative of the mean across the expected rewards to do gradient ascent
-                actor_loss = -expected_reward.mean()
-
-                # Execute gradient ascent for the actor
-                self.actor_optimizer.zero_grad()
-                actor_loss.backward()
-                self.actor_optimizer.step()
-
                 # Execute gradient descent for the critic
                 self.critic_optimizer.zero_grad()
                 critic_loss.backward()
                 self.critic_optimizer.step()
-                actor_loss = actor_loss.item()
+
                 critic_loss = critic_loss.item()
+
+                # Update actor every x multiples of critic
+                if self.t_step % (self.actor_update_every_multiplier * self.update_every) == 0:
+                    # Predicts the action for the actor networks loss calculation
+                    predicted_action = self.actor_active(states)
+
+                    # Predict the value distribution using the critic with regards to action predicted by actor
+                    probs = self.critic_active(states, predicted_action)
+
+                    # Multiply probabilities by atom values and sum across columns to get Q values
+                    expected_reward = (probs * atoms).sum(-1)
+
+                    # Calculate the actor network loss (Policy Gradient)
+                    # Get the negative of the mean across the expected rewards to do gradient ascent
+                    actor_loss = -expected_reward.mean()
+                
+                    # Execute gradient ascent for the actor
+                    self.actor_optimizer.zero_grad()
+                    actor_loss.backward()
+                    self.actor_optimizer.step()                    
+                    actor_loss = actor_loss.item()
+
 
         # Updates the target networks every n steps
         if self.t_step % self.update_target_every == 0:

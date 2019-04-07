@@ -13,13 +13,13 @@ from utilities import Seeds, initialize_env, get_device
 from memory import NStepReplayBuffer
 
 MULTI = True
-device = get_device()
+device = get_device()                           # gets gpu if available
 
 environment_params = {
-    'multiple_agents': True,      
-    'no_graphics': False,
-    'train_mode': True,
-    'offline': True,
+    'multiple_agents': MULTI,                   # runs 20 or 1 arm environment
+    'no_graphics': False,                       # runs no graphics windows version
+    'train_mode': True,                         # runs in train mode
+    'offline': True,                            # toggle on for udacity jupyter notebook
     'agent_count': 20 if MULTI else 1,  
     'device': device
 }
@@ -31,10 +31,10 @@ seedGenerator = Seeds('seeds')
 seedGenerator.next()
 
 experience_params = {
-    'seed': seedGenerator,       # seed for the experience replay buffer
-    'buffer_size': 100000,       # size of the replay buffer
-    'batch_size': 1024,           # batch size sampled from the replay buffer
-    'rollout': 1,                # n step rollout length    
+    'seed': seedGenerator,                      # seed for the experience replay buffer
+    'buffer_size': 100000,                      # size of the replay buffer
+    'batch_size': 1024,                         # batch size sampled from the replay buffer
+    'rollout': 5,                               # n step rollout length    
     'agent_count': 20 if MULTI else 1,  
     'gamma': 0.99,
     'device': device
@@ -43,71 +43,65 @@ experience_params = {
 experienceReplay = NStepReplayBuffer(experience_params)
 
 params = {
-    'episodes': 2000,            # number of episodes
-    'maxlen': 100,               # sliding window size of recent scores
-    'brain_name': brain_name,    # the brain name of the unity environment
-    'achievement': 30.,           # score at which the environment is considered solved
-    'environment': env,
-    'pretrain': False,            # whether pretraining with random actions should be done
-    'pretrain_length': 5000,     # minimum experience required in replay buffer to start training 
-    'random_fill': False,        # basically repeat pretrain at specific times to encourage further exploration
-    'random_fill_every': 10000,
-    'shape_rewards': False,       # shapes 0 rewards into small negative reward
+    'episodes': 2000,                           # number of episodes
+    'maxlen': 100,                              # sliding window size of recent scores
+    'brain_name': brain_name,                   # the brain name of the unity environment
+    'achievement': 30.,                         # score at which the environment is considered solved
+    'environment': env,             
+    'pretrain': True,                           # whether pretraining with random actions should be done
+    'pretrain_length': 5000,                    # minimum experience required in replay buffer to start training 
+    'random_fill': False,                       # basically repeat pretrain at specific times to encourage further exploration
+    'random_fill_every': 10000,             
+    'shape_rewards': False,                     # shapes 0 rewards into small negative reward
     'negative_reward': -0.0001,
     'log_dir': 'runs/',
     'load_agent': True,
     'agent_params': {
-        'name': 'D4PG - Infrequent Instense Updates',
+        'name': 'D4PG - Infrequent Instense Updates Slow Actor',
         'experience_replay': experienceReplay,
         'device': device,
         'seed': seedGenerator,
-        'num_agents': num_agents,    # number of agents in the environment
-        'gamma': 0.99,               # discount factor
-        'tau': 0.001,                # mixing rate soft-update of target parameters
-        'update_target_every': 350,  # update the target network every n-th step
-        'update_every': 20,          # update the active network every n-th step
-        'update_intensity': 10,      # learns from the same experiences several times
-        'update_target_type': 'hard',# should the update be soft at every time step or hard at every x timesteps
-        'add_noise': True,           # add noise using 'noise_params'
-        'schedule_lr': True,         # schedule learning rates 
-        'lr_steps': 30,              # step iterations to cycle lr using cosine
-        'lr_reset_every': 5000,      # steps learning rate   
-        'lr_reduction_factor': 0.9,  # reduce lr on plateau reduction factor
-        'lr_patience_factor': 5,     # reduce lr after x (timesteps/episodes) not changing tracked item
-        'actor_params': {            # actor parameters
-            'norm': True,
-            'lr': 1e-4,              # learning rate
-            'state_size': state_size,    # size of the state space
-            'action_size': action_size,  # size of the action space
-            'seed': seedGenerator,                # seed of the network architecture
-            'hidden_layers': [512, 512, 128], # hidden layer neurons
+        'num_agents': num_agents,               # number of agents in the environment
+        'gamma': 0.99,                          # discount factor
+        'tau': 0.001,                           # mixing rate soft-update of target parameters
+        'update_target_every': 350,             # update the target network every n-th step
+        'update_every': 20,                     # update the active network every n-th step
+        'actor_update_every_multiplier': 3,     # update actor every x timestep multiples of the crtic, critic needs time to adapt to new actor
+        'update_intensity': 3,                  # learns from the same experiences several times
+        'update_target_type': 'hard',           # should the update be soft at every time step or hard at every x timesteps
+        'add_noise': True,                      # add noise using 'noise_params'
+        'schedule_lr': True,                    # schedule learning rates 
+        'lr_steps': 30,                         # step iterations to cycle lr using cosine
+        'lr_reset_every': 5000,                 # steps learning rate   
+        'lr_reduction_factor': 0.9,             # reduce lr on plateau reduction factor
+        'lr_patience_factor': 5,                # reduce lr after x (timesteps/episodes) not changing tracked item
+        'actor_params': {                       # actor parameters
+            'lr': 1e-4,                         # learning rate
+            'state_size': state_size,           # size of the state space
+            'action_size': action_size,         # size of the action space
+            'seed': seedGenerator,              # seed of the network architecture
             'dropout': 0.05,
-            'act_fn': [nn.LeakyReLU(), nn.LeakyReLU(), nn.Tanh()]
         },
-        'critic_params': {               # critic parameters
-            'norm': True,
-            'lr': 5e-4,                # learning rate
-            'weight_decay': 3e-10,          # weight decay
-            'state_size': state_size,    # size of the state space
-            'action_size': action_size,  # size of the action space
-            'seed': seedGenerator,               # seed of the network architecture
-            'hidden_layers': [512, 512, 128], # hidden layer neurons
+        'critic_params': {                      # critic parameters
+            'lr': 5e-4,                         # learning rate
+            'weight_decay': 3e-10,              # weight decay
+            'state_size': state_size,           # size of the state space
+            'action_size': action_size,         # size of the action space
+            'seed': seedGenerator,              # seed of the network architecture
             'dropout': 0.05,
             'action_layer': True,
             'num_atoms': 75,
             'v_min': 0.0, 
-            'v_max': 0.5, 
-            # 'act_fn': [F.leaky_relu, F.leaky_relu, lambda x: x]
-            'act_fn': [nn.LeakyReLU(), nn.LeakyReLU(), lambda x: x]
+            'v_max': 0.5
         },
-        'ou_noise_params': {               # parameters for the Ornstein Uhlenbeck process
-            'mu': 0.,                      # mean
-            'theta': 0.15,                 # theta value for the ornstein-uhlenbeck process
-            'sigma': 0.2,                  # variance
-            'seed': seedGenerator,         # seed
+        'ou_noise_params': {                    # parameters for the Ornstein Uhlenbeck process
+            'mu': 0.,                           # mean
+            'theta': 0.15,                      # theta value for the ornstein-uhlenbeck process
+            'sigma': 0.2,                       # variance
+            'seed': seedGenerator,              # seed
             'action_size': action_size
         },
-        'ge_noise_params': {               # parameters for the Gaussian Exploration process                  
+        'ge_noise_params': {                    # parameters for the Gaussian Exploration process                  
             'max_epsilon': 1,                 
             'min_epsilon': 0.05,         
             'decay_rate': 0.99998
