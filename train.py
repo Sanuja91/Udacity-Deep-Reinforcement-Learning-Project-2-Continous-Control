@@ -48,8 +48,10 @@ def train(agents, params, num_processes):
         states = env_info.vector_observations
         scores = np.zeros(num_agents)
 
-        # agents.reset()
-        
+        # if params['agent_params']['schedule_lr'] and timesteps % params['agent_params']['lr_reset_every'] == 0:
+        #     agents.reset_lr()
+        #     params['agent_params']['lr_reset_every'] *= 2   # increases lr reset duration
+ 
         while True:
             states = torch.tensor(states)
 
@@ -71,11 +73,26 @@ def train(agents, params, num_processes):
             # adjusted_rewards = torch.from_numpy(adjusted_rewards).to(device).float().unsqueeze(1)
 
             actor_loss, critic_loss = agents.step(states, actions, adjusted_rewards, next_states, dones, pretrain = pretrain) 
+  
             if actor_loss != None and critic_loss != None:
+
+                if params['agent_params']['schedule_lr']:
+                    actor_lr, critic_lr = agents.get_lr()
+                else:
+                    actor_lr, critic_lr = params['agent_params']['actor_params']['lr'], params['agent_params']['critic_params']['lr']
+
                 writer.add_scalar('noise_epsilon', noise_epsilon, timesteps)
-                writer.add_scalar('rewards', np.mean(rewards), timesteps)
+                # writer.add_scalar('rewards', np.mean(rewards), timesteps)
                 writer.add_scalar('actor_loss', actor_loss, timesteps)
                 writer.add_scalar('critic_loss', critic_loss, timesteps)
+                writer.add_scalar('actor_lr', actor_lr, timesteps)
+                writer.add_scalar('critic_lr', critic_lr, timesteps)
+                
+                agents.step_lr(actor_loss, critic_loss)
+
+            # if params['agent_params']['schedule_lr'] and timesteps % (params['agent_params']['lr_reset_every'] // params['agent_params']['lr_steps']) == 0:
+                
+                
 
             scores += rewards                              # update the scores
             states = next_states                           # roll over the state to next time step
@@ -104,7 +121,7 @@ def train(agents, params, num_processes):
 
         writer.add_scalars('scores', {'mean': np.mean(scores),
                                       'min': np.min(scores),
-                                      'max': np.max(scores)}, i_episode)
+                                      'max': np.max(scores)}, timesteps)
                                         
         update_csv(name, i_episode, np.mean(scores), np.mean(scores))
         if i_episode % 100 == 0:

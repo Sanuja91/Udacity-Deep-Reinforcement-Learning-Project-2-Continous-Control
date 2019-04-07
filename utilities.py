@@ -9,10 +9,15 @@ def initialize_env(params):
     ==========
     multiple_agents (boolean): multiple agents or single agent"""
 
-    if params['multiple_agents']:
+    if params['multiple_agents'] and params['offline']:
         env = UnityEnvironment(file_name="Reacher_Windows_x86_64/Multi/Reacher.exe", worker_id = 1, no_graphics = params['no_graphics'])
-    else:
+    elif params['offline']:
         env = UnityEnvironment(file_name="Reacher_Windows_x86_64/Single/Reacher.exe", worker_id = 1, no_graphics = params['no_graphics'])
+    elif params['multiple_agents']:
+        env = UnityEnvironment(file_name='/data/Reacher_Linux_NoVis/Reacher.x86_64')
+    else:
+        env = UnityEnvironment(file_name='/data/Reacher_One_Linux_NoVis/Reacher_One_Linux_NoVis.x86_64')
+
 
     """Resetting environment"""
     brain_name = env.brain_names[0]

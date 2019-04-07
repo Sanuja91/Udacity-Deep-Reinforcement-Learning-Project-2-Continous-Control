@@ -10,10 +10,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 
 from models import Actor, D4PGCritic
 from noise import OUNoise, GaussianExploration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class Agent(object):
     """Interacts with and learns from the environment."""
@@ -327,6 +329,7 @@ class D4PGAgent(DDPGAgent):
         self.update_type = params['update_type']
         self.device = params['device']
         self.name = params['name']
+        self.lr_reduction_factor = params['lr_reduction_factor']
 
         # Distributes the number of atoms across the range of v min and max
         self.atoms = torch.linspace(self.v_min, self.v_max, self.num_atoms).to(self.device)
@@ -334,15 +337,41 @@ class D4PGAgent(DDPGAgent):
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
         
-        
         # Actor Network (w/ Target Network)
-        self.actor_active = Actor(params['actor_params']).to(device)
+        self.actor_active = Actor(params['actor_params']).to(device)        
         self.actor_target = Actor(params['actor_params']).to(device)
-        self.actor_optimizer = optim.Adam(self.actor_active.parameters(), lr=params['actor_params']['lr'])
-        
+       
         # Critic Network (w/ Target Network)
         self.critic_active = D4PGCritic(params['critic_params']).to(device)
         self.critic_target = D4PGCritic(params['critic_params']).to(device)
+
+        self.actor_optimizer = optim.Adam(self.actor_active.parameters(), lr = params['actor_params']['lr'])
+        self.critic_optimizer = optim.Adam(self.critic_active.parameters(), lr = params['critic_params']['lr'])
+        
+        self.schedule_lr = params['schedule_lr']
+        self.lr_steps = 0
+
+        if self.schedule_lr:
+            self.actor_scheduler = ReduceLROnPlateau(self.actor_optimizer, 
+                                                    mode = 'max', 
+                                                    factor = params['lr_reduction_factor'],
+                                                    patience = params['lr_patience_factor'],
+                                                    verbose = False,
+
+                                                )
+            self.critic_scheduler = ReduceLROnPlateau(self.critic_optimizer, 
+                                                    mode = 'min',
+                                                    factor = params['lr_reduction_factor'],
+                                                    patience = params['lr_patience_factor'],
+                                                    verbose = False,
+                                                 )
+
+
+        # self.critic_optimizer = optim.Adam(self.critic_active.parameters(),
+        #                                    lr=params['critic_params']['lr'],
+        #                                    weight_decay=params['critic_params']['weight_decay'])
+        
+
 
         print("\n################ ACTOR ################\n")
         print(self.actor_active)
@@ -350,9 +379,7 @@ class D4PGAgent(DDPGAgent):
         print("\n################ CRITIC ################\n")
         print(self.critic_active)
 
-        self.critic_optimizer = optim.Adam(self.critic_active.parameters(),
-                                           lr=params['critic_params']['lr'],
-                                           weight_decay=params['critic_params']['weight_decay'])
+
 
         # Noise process
         self.noise = GaussianExploration(params['ge_noise_params'])
@@ -360,7 +387,22 @@ class D4PGAgent(DDPGAgent):
         # Replay memory
         self.memory = params['experience_replay']
 
-      
+    def step_lr(self, actor_loss, critic_loss):
+        """Steps the learning rate scheduler"""
+        self.actor_scheduler.step(actor_loss)
+        self.critic_scheduler.step(critic_loss)
+        self.lr_steps += 1
+    
+    def get_lr(self):
+        """Returns the learning rates"""
+        actor_lr = 0
+        critic_lr = 0
+        for param_group in self.actor_optimizer.param_groups:
+            actor_lr =  param_group['lr']
+        for param_group in self.critic_optimizer.param_groups:
+            critic_lr =  param_group['lr']
+        return actor_lr, critic_lr
+
     def learn_(self):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
@@ -466,3 +508,4 @@ class D4PGAgent(DDPGAgent):
             projected_probs[idx].index_add_(0, lower_bound[idx].long(), m_lower[idx].double())
             projected_probs[idx].index_add_(0, upper_bound[idx].long(), m_upper[idx].double())
         return projected_probs.float()
+

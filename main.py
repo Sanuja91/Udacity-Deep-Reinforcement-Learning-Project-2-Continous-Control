@@ -19,6 +19,7 @@ environment_params = {
     'multiple_agents': True,      
     'no_graphics': False,
     'train_mode': True,
+    'offline': False,
     'agent_count': 20 if MULTI else 1,  
     'device': device
 }
@@ -56,19 +57,24 @@ params = {
     'log_dir': 'runs/',
     'load_agent': True,
     'agent_params': {
-        'name': 'D4PG - A-lr 1e-5, C-lr 5e-5, 75 atoms, [300, 400], 1 rollout, LeakyReLU',
+        'name': 'D4PG - ReduceLROnPlateau',
         'experience_replay': experienceReplay,
         'device': device,
         'seed': seedGenerator,
         'num_agents': num_agents,    # number of agents in the environment
         'gamma': 0.99,               # discount factor
         'tau': 0.001,                # mixing rate soft-update of target parameters
-        'update_every': 350,        # update every n-th step
-        'update_type': 'hard',      # should the update be soft at every time step or hard at every x timesteps
-        'add_noise': True,          # add noise using 'noise_params'
+        'update_every': 350,         # update every n-th step
+        'update_type': 'hard',       # should the update be soft at every time step or hard at every x timesteps
+        'add_noise': True,           # add noise using 'noise_params'
+        'schedule_lr': True,         # schedule learning rates 
+        'lr_steps': 30,              # step iterations to cycle lr using cosine
+        'lr_reset_every': 5000,      # steps learning rate   
+        'lr_reduction_factor': 0.5,  # reduce lr on plateau reduction factor
+        'lr_patience_factor': 5000,   # reduce lr after x timesteps not changing tracked item
         'actor_params': {            # actor parameters
             'norm': True,
-            'lr': 1e-5,            # learning rate
+            'lr': 1e-4,              # learning rate
             'state_size': state_size,    # size of the state space
             'action_size': action_size,  # size of the action space
             'seed': seedGenerator,                # seed of the network architecture
@@ -78,7 +84,7 @@ params = {
         },
         'critic_params': {               # critic parameters
             'norm': True,
-            'lr': 5e-5,                # learning rate
+            'lr': 5e-4,                # learning rate
             'weight_decay': 3e-10,          # weight decay
             'state_size': state_size,    # size of the state space
             'action_size': action_size,  # size of the action space
