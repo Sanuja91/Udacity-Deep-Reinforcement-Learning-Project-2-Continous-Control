@@ -32,8 +32,8 @@ seedGenerator.next()
 
 experience_params = {
     'seed': seedGenerator,                      # seed for the experience replay buffer
-    'buffer_size': 100000,                      # size of the replay buffer
-    'batch_size': 1024,                         # batch size sampled from the replay buffer
+    'buffer_size': 300000,                      # size of the replay buffer
+    'batch_size': 128,                         # batch size sampled from the replay buffer
     'rollout': 5,                               # n step rollout length    
     'agent_count': 20 if MULTI else 1,  
     'gamma': 0.99,
@@ -52,38 +52,39 @@ params = {
     'pretrain_length': 5000,                    # minimum experience required in replay buffer to start training 
     'random_fill': False,                       # basically repeat pretrain at specific times to encourage further exploration
     'random_fill_every': 10000,             
-    'shape_rewards': False,                     # shapes 0 rewards into small negative reward
+    'shape_rewards': True,                     # shapes 0 rewards into small negative reward
     'negative_reward': -0.0001,
     'log_dir': 'runs/',
     'load_agent': True,
     'agent_params': {
-        'name': 'D4PG - Infrequent Instense Updates Slow Actor',
+        'name': 'D4PG New Shape Rewards',
         'experience_replay': experienceReplay,
         'device': device,
         'seed': seedGenerator,
         'num_agents': num_agents,               # number of agents in the environment
         'gamma': 0.99,                          # discount factor
-        'tau': 0.001,                           # mixing rate soft-update of target parameters
+        'tau': 0.0001,                          # mixing rate soft-update of target parameters
         'update_target_every': 350,             # update the target network every n-th step
-        'update_every': 20,                     # update the active network every n-th step
-        'actor_update_every_multiplier': 3,     # update actor every x timestep multiples of the crtic, critic needs time to adapt to new actor
-        'update_intensity': 3,                  # learns from the same experiences several times
+        'update_every': 1,                     # update the active network every n-th step
+        'actor_update_every_multiplier': 1,     # update actor every x timestep multiples of the crtic, critic needs time to adapt to new actor
+        'update_intensity': 1,                 # learns from the same experiences several times
         'update_target_type': 'hard',           # should the update be soft at every time step or hard at every x timesteps
         'add_noise': True,                      # add noise using 'noise_params'
-        'schedule_lr': True,                    # schedule learning rates 
+        'anneal_noise': True,  
+        'schedule_lr': False,                   # schedule learning rates 
         'lr_steps': 30,                         # step iterations to cycle lr using cosine
         'lr_reset_every': 5000,                 # steps learning rate   
         'lr_reduction_factor': 0.9,             # reduce lr on plateau reduction factor
-        'lr_patience_factor': 5,                # reduce lr after x (timesteps/episodes) not changing tracked item
+        'lr_patience_factor': 10,                # reduce lr after x (timesteps/episodes) not changing tracked item
         'actor_params': {                       # actor parameters
-            'lr': 1e-4,                         # learning rate
+            'lr': 0.0005,                       # learning rate
             'state_size': state_size,           # size of the state space
             'action_size': action_size,         # size of the action space
             'seed': seedGenerator,              # seed of the network architecture
             'dropout': 0.05,
         },
         'critic_params': {                      # critic parameters
-            'lr': 5e-4,                         # learning rate
+            'lr': 0.001,                         # learning rate
             'weight_decay': 3e-10,              # weight decay
             'state_size': state_size,           # size of the state space
             'action_size': action_size,         # size of the action space
@@ -101,9 +102,10 @@ params = {
             'seed': seedGenerator,              # seed
             'action_size': action_size
         },
-        'ge_noise_params': {                    # parameters for the Gaussian Exploration process                  
-            'max_epsilon': 1,                 
-            'min_epsilon': 0.05,         
+        'ge_noise_params': {                    # parameters for the Gaussian Exploration process                   
+            'max_epsilon': 0.3,                 
+            'min_epsilon': 0.005,
+            'decay_epsilon': False,         
             'decay_rate': 0.99998
         },
         
@@ -115,5 +117,5 @@ agents = D4PGAgent(params=params['agent_params'])
 
 scores = train(agents=agents, params=params, num_processes=num_agents)
 
-df = pd.DataFrame(data={'episode': np.arange(len(scores)), 'DDPG-3': scores})
-df.to_csv('results/DDPG-3-scores.csv', index=False)
+df = pd.DataFrame(data={'episode': np.arange(len(scores)), 'D4PG': scores})
+df.to_csv('results/D4PG.csv', index=False)

@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 
-from models import Actor, D4PGCritic
+from models import Actor, Critic, D4PGCritic
 from noise import OUNoise, GaussianExploration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -157,10 +157,21 @@ class DDPGAgent(Agent):
         else:
             with torch.no_grad():
                 actions = self.actor_active(states.to(device).float()).detach().to('cpu').numpy()
+                # print("\n\n################################# FRESH ACTIONS \n\n")
+                # print(actions)
             if add_noise:
-                actions += self.noise.create_noise(actions.shape)
+                noise = self.noise.create_noise(actions.shape)
+                # print("\n\n################################# NOISE \n\n")
+                # print(noise)
+                actions += noise
+                # print("\n\n################################# NOISY ACTIONS \n\n")
+                # print(actions)
+            
             actions = np.clip(actions, -1., 1.)        
+            # print("\n\n################################# CLIPPED ACTIONS \n\n")
             # print(actions)
+
+            # exit()
         
         return actions, self.noise.epsilon
     
@@ -320,6 +331,7 @@ class D4PGAgent(DDPGAgent):
         self.device = params['device']
         self.name = params['name']
         self.lr_reduction_factor = params['lr_reduction_factor']
+        self.tau = params['tau']
 
         # Distributes the number of atoms across the range of v min and max
         self.atoms = torch.linspace(self.v_min, self.v_max, self.num_atoms).to(self.device)
@@ -330,15 +342,24 @@ class D4PGAgent(DDPGAgent):
         # Actor Network (w/ Target Network)
         self.actor_active = Actor(params['actor_params']).to(device)        
         self.actor_target = Actor(params['actor_params']).to(device)
-       
+
+        ######################## D4PG ######################################
         # Critic Network (w/ Target Network)
         self.critic_active = D4PGCritic(params['critic_params']).to(device)
         self.critic_target = D4PGCritic(params['critic_params']).to(device)
+        ######################## D4PG ######################################
+
+        # ######################## DDPG ######################################
+        # # Critic Network (w/ Target Network)
+        # self.critic_active = Critic(params['critic_params']).to(device)
+        # self.critic_target = Critic(params['critic_params']).to(device)
+        # ######################## DDPG ######################################
 
         self.actor_optimizer = optim.Adam(self.actor_active.parameters(), lr = params['actor_params']['lr'])
         self.critic_optimizer = optim.Adam(self.critic_active.parameters(), lr = params['critic_params']['lr'])
         
         self.schedule_lr = params['schedule_lr']
+        self.anneal_noise = params['anneal_noise']
         self.lr_steps = 0
 
         if self.schedule_lr:
@@ -370,9 +391,14 @@ class D4PGAgent(DDPGAgent):
 
     def step_lr(self, score):
         """Steps the learning rate scheduler"""
-        self.actor_scheduler.step(score)
-        self.critic_scheduler.step(score)
-        self.lr_steps += 1
+        if self.schedule_lr:
+            self.actor_scheduler.step(score)
+            self.critic_scheduler.step(score)
+            self.lr_steps += 1
+
+        if self.anneal_noise:
+            self.noise.decay()
+        
     
     def get_lr(self):
         """Returns the learning rates"""
@@ -399,12 +425,15 @@ class D4PGAgent(DDPGAgent):
         critic_loss = None
         if self.t_step % self.update_every == 0:
 
-            # Samples from the replay buffer which has calculated the n step returns
-            # Next state represents the state at the n'th step
-            states, next_states, actions, rewards, dones = self.memory.sample()
-
             # Learns multiple times with the same set of experience
             for _ in range(self.update_intensity):
+
+                
+                # Samples from the replay buffer which has calculated the n step returns
+                # Next state represents the state at the n'th step
+                states, next_states, actions, rewards, dones = self.memory.sample()
+
+                ######################## D4PG ######################################
                 atoms = self.atoms.unsqueeze(0)
 
                 # Calculate log probability distribution using Zw w.r.t. stored actions
@@ -418,16 +447,30 @@ class D4PGAgent(DDPGAgent):
                 # arrive at a more accurate result. Cross Entropy loss is used as it is considered to 
                 # be the most ideal for categorical value distributions as utlized in the D4PG
                 critic_loss = -(target_dist * log_probs).sum(-1).mean()
+                ######################## D4PG ######################################
+
+                # ######################## DDPG ######################################
+                # # Get predicted next-state actions and Q values from target models
+                # actions_next = self.actor_target(next_states)
+                # Q_targets_next = self.critic_target(next_states, actions_next).detach()
+                # # Compute Q targets for current states (y_i)
+                # Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
+                # # Compute critic loss
+                # Q_expected = self.critic_active(states, actions)
+                # critic_loss = F.mse_loss(Q_expected, Q_targets)
+                # ######################## DDPG ######################################
 
                 # Execute gradient descent for the critic
                 self.critic_optimizer.zero_grad()
                 critic_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.critic_active.parameters(), 1)
                 self.critic_optimizer.step()
 
                 critic_loss = critic_loss.item()
 
                 # Update actor every x multiples of critic
                 if self.t_step % (self.actor_update_every_multiplier * self.update_every) == 0:
+                    ######################## D4PG ######################################
                     # Predicts the action for the actor networks loss calculation
                     predicted_action = self.actor_active(states)
 
@@ -440,6 +483,12 @@ class D4PGAgent(DDPGAgent):
                     # Calculate the actor network loss (Policy Gradient)
                     # Get the negative of the mean across the expected rewards to do gradient ascent
                     actor_loss = -expected_reward.mean()
+                    ######################## D4PG ######################################
+
+                    # ######################## DDPG ######################################
+                    # actions_pred = self.actor_active(states)
+                    # actor_loss = -self.critic_active(states, actions_pred).mean()
+                    # ######################## DDPG ######################################
                 
                     # Execute gradient ascent for the actor
                     self.actor_optimizer.zero_grad()

@@ -47,6 +47,8 @@ class NStepReplayBuffer:
             for actor in range(self.agent_count):
                 # print("\n\n#### NEXT STATE", states[actor].shape, "ACTION", actions[actor].shape, "REWARD", rewards[actor], "\n\n")
                 # Adds experience into n step trajectory
+                # print(dones)
+
                 self.n_step[actor].append((states[actor], actions[actor], rewards[actor], next_states[actor], dones[actor]))
 
             # Abort process over here if trajectory length
@@ -54,15 +56,16 @@ class NStepReplayBuffer:
             if len(self.n_step[0]) < self.rollout:
                 return
             
-            # Converts the trajectory into and n step experience
-            (state, next_state, action, reward, done) = self._create_n_step_experience()
+            # Converts the trajectory into and n step experience and adds to the buffer
+            # (state, next_state, action, reward, done) = self._create_nstep_experiences()
+            self._create_nstep_experiences()
     
-            state = state.float()
-            action = torch.tensor(action).float()
-            reward = torch.tensor(reward).float()
-            next_state = torch.tensor(next_state).float()
-            done = torch.tensor(done).float()
-            self.memory.append((state, next_state, action, reward, done))
+            # state = state.float()
+            # action = torch.tensor(action).float()
+            # reward = torch.tensor(reward).float()
+            # next_state = torch.tensor(next_state).float()
+            # done = torch.tensor(done).float()
+            # self.memory.append((state, next_state, action, reward, done))
         else:
             for actor in range(self.agent_count):
                 # print("\n\n#### NEXT STATE", state.shape, "ACTION", action.shape, "REWARD", reward[actor], "\n\n")
@@ -103,7 +106,7 @@ class NStepReplayBuffer:
         # print("\n\nSTATES", state.shape, "ACTIONS", actions.shape, "REWARDS", rewards.shape, "\n\n")
         return (state, next_state, actions, rewards, dones)
 
-    def _create_n_step_experience(self):
+    def _create_nstep_experiences(self):
         """
         Takes a stack of experiences nof the rollout length and calculates
         the n step discounted return as the new reward
@@ -117,9 +120,10 @@ class NStepReplayBuffer:
         # Unpacks and stores the SARS' tuple for each actor in the environment
         # thus, each timestep actually adds K_ACTORS memories to the buffer,
         # for the Udacity environment this means 20 memories each timestep.
-        for agent_experiences in self.n_step:
-            states, actions, rewards, next_states, dones = zip(*agent_experiences)
+        for x, agent_experiences in enumerate(self.n_step):
 
+            states, actions, rewards, next_states, dones = zip(*agent_experiences)
+            
             # The immediate reward is not discounted
             returns = rewards[0]
 
@@ -128,13 +132,19 @@ class NStepReplayBuffer:
             for i in range(1, self.rollout):
                 returns += self.gamma**i * rewards[i]
                 if np.any(dones[i]):
+                    # print("\n", dones)
+                    # print(dones.shape)
+                    # exit()
                     break
 
-            state = states[0]
-            nstep_state = next_states[i]
-            action = actions[0]
-            done = dones[i]
-        return (state, nstep_state, action, returns, done)
+            state = states[0].float()
+            nstep_state = torch.tensor(next_states[i]).float()
+            action = torch.tensor(actions[0]).float()
+            done = torch.tensor(dones[i]).float()
+            returns = torch.tensor(returns).float()
+            self.memory.append((state, nstep_state, action, returns, done))
+
+        # return (state, nstep_state, action, returns, done)
 
     def ready(self):
         return len(self.memory) > self.batch_size

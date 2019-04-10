@@ -55,11 +55,9 @@ def train(agents, params, num_processes):
         while True:
             states = torch.tensor(states)
 
-            if pretrain and pretrain_length > 0:
-                pretrain_length -= 1
-            else:
+            if pretrain and pretrain_length < len(agents.memory.memory):
                 pretrain = False
-
+     
             actions, noise_epsilon = agents.act(states, add_noise, pretrain = pretrain)
             
             env_info = env.step(actions)[brain_name]       # send the action to the environment
@@ -73,7 +71,6 @@ def train(agents, params, num_processes):
             # adjusted_rewards = torch.from_numpy(adjusted_rewards).to(device).float().unsqueeze(1)
 
             actor_loss, critic_loss = agents.step(states, actions, adjusted_rewards, next_states, dones, pretrain = pretrain) 
-  
             if actor_loss != None and critic_loss != None:
 
                 if params['agent_params']['schedule_lr']:
@@ -89,13 +86,14 @@ def train(agents, params, num_processes):
                 writer.add_scalar('critic_lr', critic_lr, timesteps)
 
             # if params['agent_params']['schedule_lr'] and timesteps % (params['agent_params']['lr_reset_every'] // params['agent_params']['lr_steps']) == 0:
-                
+            print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'.format(timesteps, np.mean(scores), np.min(scores), np.max(scores)), end="")  
+
             scores += rewards                              # update the scores
             states = next_states                           # roll over the state to next time step
             if np.any(dones):                              # exit loop if episode finished
                 break
                 
-            print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'.format(timesteps, np.mean(scores), np.min(scores), np.max(scores)), end="")  
+            
   
             timesteps += 1 
 
