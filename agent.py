@@ -410,6 +410,9 @@ class D4PGAgent(DDPGAgent):
             critic_lr =  param_group['lr']
         return actor_lr, critic_lr
 
+    # The D4PG implmentation below this point was heavily influenced by the work of Mathew Doll
+    # https://github.com/whiterabbitobj/Continuous_Control
+    
     def learn_(self):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))

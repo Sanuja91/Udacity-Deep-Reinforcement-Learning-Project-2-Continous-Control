@@ -29,3 +29,5 @@ A single agent was implemented using the D4PG architecture to solve the environm
 
 The agent manages to solve the environment in record speed reaching a score greater than 30 in 24 episodes. To be honest, its the fastest I have seen.
 
+### D4PG Implementation Influncer
+Matthew Doll - https://github.com/whiterabbitobj/Continuous_Control
