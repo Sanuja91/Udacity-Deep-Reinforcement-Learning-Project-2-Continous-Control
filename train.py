@@ -93,8 +93,6 @@ def train(agents, params, num_processes):
             if np.any(dones):                              # exit loop if episode finished
                 break
                 
-            
-  
             timesteps += 1 
 
             # Fills the buffer with experiences resulting from random actions 
@@ -131,9 +129,5 @@ def train(agents, params, num_processes):
             print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f} \t Time: {:.2f}'.format(i_episode-100, np.mean(scores_window), toc-tic))
             if best_min_score < np.min(scores_window):
                 best_min_score = np.min(scores_window)
-                # agents.save
-                # for idx, a in enumerate(agents):
-                #     torch.save(a.actor_local.state_dict(), 'results/' + str(idx) + '_' + str(i_episode) + '_' + name + '_actor_checkpoint.pth')
-                #     torch.save(a.critic_local.state_dict(), 'results/' + str(idx) + '_' + str(i_episode) + '_' + name + '_critic_checkpoint.pth')
     writer.close()
     return scores
