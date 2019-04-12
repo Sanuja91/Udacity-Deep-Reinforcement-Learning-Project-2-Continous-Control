@@ -7,6 +7,8 @@
 
 ## Project 2: Continuous Control (Reacher)
 
+![Trained Agent][image1]
+
 For this project, we had to build an AI agent to conduct a continous task for keeping the robotic hand (blue nob) in zone of the moving target with the aim of reaching a score greater than 30 for 100 episodes in a row. An episode constists of 1000 timesteps. In each timestep the agent receives a reward of +0.01 for staying in the zone. The robotic arm can be moved by adjusted 4 continous actions that determine the force exerted on the joints of the robotic arm thereby determining its location in space. The actions range in between the values of -1 and +1. The selected environment for this project was the more challenging 20 robotic arm environment
 
 ## Implemented Agent
