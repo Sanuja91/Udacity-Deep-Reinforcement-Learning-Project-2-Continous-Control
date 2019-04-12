@@ -57,7 +57,7 @@ params = {
     'log_dir': 'runs/',
     'load_agent': True,
     'agent_params': {
-        'name': 'D4PG New Shape Rewards',
+        'name': 'D4PG New Shape Rewards with Noise Decay',
         'experience_replay': experienceReplay,
         'device': device,
         'seed': seedGenerator,
@@ -105,8 +105,9 @@ params = {
         'ge_noise_params': {                    # parameters for the Gaussian Exploration process                   
             'max_epsilon': 0.3,                 
             'min_epsilon': 0.005,
-            'decay_epsilon': False,         
-            'decay_rate': 0.99998
+            'decay_epsilon': True,    
+            'patience_episodes': 2,         # episodes since the last best reward  
+            'decay_rate': 0.95                   
         },
         
     }

@@ -397,7 +397,7 @@ class D4PGAgent(DDPGAgent):
             self.lr_steps += 1
 
         if self.anneal_noise:
-            self.noise.decay()
+            self.noise.decay(score)
         
     
     def get_lr(self):
