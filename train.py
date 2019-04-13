@@ -47,10 +47,6 @@ def train(agents, params, num_processes):
         timestep = time.time()
         states = env_info.vector_observations
         scores = np.zeros(num_agents)
-
-        # if params['agent_params']['schedule_lr'] and timesteps % params['agent_params']['lr_reset_every'] == 0:
-        #     agents.reset_lr()
-        #     params['agent_params']['lr_reset_every'] *= 2   # increases lr reset duration
  
         while True:
             states = torch.tensor(states)
@@ -68,7 +64,6 @@ def train(agents, params, num_processes):
 
             if params['shape_rewards']:
                 adjusted_rewards[adjusted_rewards == 0] = params['negative_reward']
-            # adjusted_rewards = torch.from_numpy(adjusted_rewards).to(device).float().unsqueeze(1)
 
             actor_loss, critic_loss = agents.step(states, actions, adjusted_rewards, next_states, dones, pretrain = pretrain) 
             if actor_loss != None and critic_loss != None:
@@ -79,13 +74,11 @@ def train(agents, params, num_processes):
                     actor_lr, critic_lr = params['agent_params']['actor_params']['lr'], params['agent_params']['critic_params']['lr']
 
                 writer.add_scalar('noise_epsilon', noise_epsilon, timesteps)
-                # writer.add_scalar('rewards', np.mean(rewards), timesteps)
                 writer.add_scalar('actor_loss', actor_loss, timesteps)
                 writer.add_scalar('critic_loss', critic_loss, timesteps)
                 writer.add_scalar('actor_lr', actor_lr, timesteps)
                 writer.add_scalar('critic_lr', critic_lr, timesteps)
 
-            # if params['agent_params']['schedule_lr'] and timesteps % (params['agent_params']['lr_reset_every'] // params['agent_params']['lr_steps']) == 0:
             print('\rTimestep {}\tScore: {:.2f}\tmin: {:.2f}\tmax: {:.2f}'.format(timesteps, np.mean(scores), np.min(scores), np.max(scores)), end="")  
 
             scores += rewards                              # update the scores
