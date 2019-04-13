@@ -364,7 +364,7 @@ class D4PGAgent(Agent):
 
         # Rewards were stored with the first reward followed by each of the discounted rewards, sum up the 
         # reward with its discounted reward
-        projected_atoms = rewards.unsqueeze(-1) + self.gamma**self.memory.rollout * self.atoms.unsqueeze(0)
+        projected_atoms = rewards.unsqueeze(-1) + self.gamma**self.memory.rollout_length * self.atoms.unsqueeze(0)
         projected_atoms.clamp_(self.v_min, self.v_max)
         b = (projected_atoms - self.v_min) / delta_z
 

@@ -65,7 +65,8 @@ params = {
     'episodes': 2000,                           # number of episodes
     'maxlen': 100,                              # sliding window size of recent scores
     'brain_name': brain_name,                   # the brain name of the unity environment
-    'achievement': 30.,                         # score at which the environment is considered solved
+    'achievement': 30.,                         # score at which the environment is considered beaten
+    'achievement_length': 100,                  # how long the agent needs to get a score above the achievement to solve the environment
     'environment': env,             
     'pretrain': True,                           # whether pretraining with random actions should be done
     'pretrain_length': 5000,                    # minimum experience required in replay buffer to start training 

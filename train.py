@@ -38,6 +38,7 @@ def train(agents, params, num_processes):
     tic = time.time()
     best_min_score = 0.0
     timesteps = 0
+    achievement_length = 0
 
     episode_start = 1
     if params['load_agent']:
@@ -114,13 +115,18 @@ def train(agents, params, num_processes):
         update_csv(name, i_episode, np.mean(scores), np.mean(scores))
 
         agents.step_lr(np.mean(scores))
-        if i_episode % 100 == 0:
-            toc = time.time()
-            print('\rEpisode {}\tAverage Score: {:.2f} \t Min: {:.2f} \t Max: {:.2f} \t Time: {:.2f}'.format(i_episode, np.mean(scores_window), np.min(scores_window), np.max(scores_window), toc - tic), end="")
-        if np.mean(scores_window) >= achievement:
-            toc = time.time()
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f} \t Time: {:.2f}'.format(i_episode-100, np.mean(scores_window), toc-tic))
-            if best_min_score < np.min(scores_window):
-                best_min_score = np.min(scores_window)
+
+        if np.mean(scores) > params['achievement']:
+            achievement_length += 1
+            if achievement_length > params['achievement_length']:
+                toc = time.time()
+                print("\n\n Congratulations! The agent has managed to solve the environment in {} episodes with {} training time\n\n".format(i_episode, toc-tic))
+            writer.close()
+            return scores
+        else:
+            achievement_length = 0
+
     writer.close()
     return scores
+
+
