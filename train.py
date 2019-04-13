@@ -24,7 +24,6 @@ def train(agents, params, num_processes):
     name = params['agent_params']['name']
     brain_name = params['brain_name']
     env = params['environment']
-    achievement = params['achievement']
     add_noise = params['agent_params']['add_noise']
     pretrain = params['pretrain']
     pretrain_length = params['pretrain_length']
@@ -36,7 +35,6 @@ def train(agents, params, num_processes):
 
     env_info = env.reset(train_mode = True)[brain_name]
     tic = time.time()
-    best_min_score = 0.0
     timesteps = 0
     achievement_length = 0
 
@@ -121,8 +119,8 @@ def train(agents, params, num_processes):
             if achievement_length > params['achievement_length']:
                 toc = time.time()
                 print("\n\n Congratulations! The agent has managed to solve the environment in {} episodes with {} training time\n\n".format(i_episode, toc-tic))
-            writer.close()
-            return scores
+                writer.close()
+                return scores
         else:
             achievement_length = 0
 

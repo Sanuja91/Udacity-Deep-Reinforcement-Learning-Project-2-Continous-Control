@@ -99,17 +99,16 @@ class Agent(object):
             self.critic_scheduler.step(score)
             self.lr_steps += 1
 
-        if self.anneal_noise:
-            self.noise.decay(score)
+        self.noise.decay(score)
         
     
     def get_lr(self):
         """Returns the learning rates"""
         actor_lr = 0
         critic_lr = 0
-        for params in self.actor_optimizer.paramss:
+        for params in self.actor_optimizer.params:
             actor_lr =  params['lr']
-        for params in self.critic_optimizer.paramss:
+        for params in self.critic_optimizer.params:
             critic_lr =  params['lr']
         return actor_lr, critic_lr
 
@@ -201,7 +200,6 @@ class D4PGAgent(Agent):
         self.critic_optimizer = optim.Adam(self.critic_active.parameters(), lr = params['critic_params']['lr'])
         
         self.schedule_lr = params['schedule_lr']
-        self.anneal_noise = params['anneal_noise']
         self.lr_steps = 0
 
         # Create learning rate schedulers if required to reduce the learning rate

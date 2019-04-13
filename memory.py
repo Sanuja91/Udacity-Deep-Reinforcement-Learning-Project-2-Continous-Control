@@ -90,7 +90,7 @@ class NStepReplayBuffer:
 
         # Unpacks and stores the experience tuples for each actor in the environment
         # from their respective n step deques
-        for x, agent_experiences in enumerate(self.n_step):
+        for agent_experiences in self.n_step:
 
             states, actions, rewards, next_states, dones = zip(*agent_experiences)
             

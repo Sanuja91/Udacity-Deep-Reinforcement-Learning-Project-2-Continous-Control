@@ -69,7 +69,7 @@ params = {
     'achievement_length': 100,                  # how long the agent needs to get a score above the achievement to solve the environment
     'environment': env,             
     'pretrain': True,                           # whether pretraining with random actions should be done
-    'pretrain_length': 5000,                    # minimum experience required in replay buffer to start training 
+    'pretrain_length': 20000,                    # minimum experience required in replay buffer to start training 
     'random_fill': False,                       # basically repeat pretrain at specific times to encourage further exploration
     'random_fill_every': 10000,             
     'shape_rewards': True,                      # shapes 0 rewards into small negative rewards
@@ -77,7 +77,7 @@ params = {
     'log_dir': 'runs/',
     'load_agent': True,
     'agent_params': {
-        'name': 'D4PG New Shape Rewards with Noise Decay TEST',
+        'name': 'D4PG Final 2 Low LR High Pretrain',
         'd4pg': True,
         'experience_replay': experienceReplay,
         'device': device,
@@ -91,20 +91,19 @@ params = {
         'update_intensity': 1,                  # learns from the same experiences several times
         'update_target_type': 'hard',           # should the update be soft at every time step or hard at every x timesteps
         'add_noise': True,                      # add noise using 'noise_params'
-        'anneal_noise': True,  
         'schedule_lr': False,                   # schedule learning rates 
         'lr_steps': 30,                         # step iterations to cycle lr using cosine
         'lr_reset_every': 5000,                 # steps learning rate   
         'lr_reduction_factor': 0.9,             # reduce lr on plateau reduction factor
         'lr_patience_factor': 10,               # reduce lr after x (timesteps/episodes) not changing tracked item
         'actor_params': {                       # actor parameters
-            'lr': 0.0005,                       # learning rate
+            'lr': 0.0001,                       # learning rate
             'state_size': state_size,           # size of the state space
             'action_size': action_size,         # size of the action space
             'seed': seedGenerator,              # seed of the network architecture
         },
         'critic_params': {                      # critic parameters
-            'lr': 0.001,                        # learning rate
+            'lr': 0.0005,                        # learning rate
             'weight_decay': 3e-10,              # weight decay
             'state_size': state_size,           # size of the state space
             'action_size': action_size,         # size of the action space
