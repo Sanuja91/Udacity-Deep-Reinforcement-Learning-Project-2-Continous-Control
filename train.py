@@ -61,7 +61,7 @@ def train(agents, params, num_processes):
             dones = env_info.local_done                    # see if episode has finished
             adjusted_rewards = np.array(env_info.rewards)
 
-            if params['shape_rewards']:
+            if params['hack_rewards']:
                 adjusted_rewards[adjusted_rewards == 0] = params['negative_reward']
 
             actor_loss, critic_loss = agents.step(states, actions, adjusted_rewards, next_states, dones, pretrain = pretrain) 

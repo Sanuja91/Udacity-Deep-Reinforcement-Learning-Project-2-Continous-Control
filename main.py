@@ -72,7 +72,7 @@ params = {
     'pretrain_length': 20000,                    # minimum experience required in replay buffer to start training 
     'random_fill': False,                       # basically repeat pretrain at specific times to encourage further exploration
     'random_fill_every': 10000,             
-    'shape_rewards': True,                      # shapes 0 rewards into small negative rewards
+    'hack_rewards': True,                      # shapes 0 rewards into small negative rewards
     'negative_reward': -0.0001,
     'log_dir': 'runs/',
     'load_agent': True,
