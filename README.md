@@ -36,4 +36,4 @@ Simply start up the notebook and run each cell
 
 A single agent was implemented using the D4PG architecture to solve the environment in a parallel manner where the 33 state variables for each of the 20 agents are processed by the neural network in a batched manner in a parallelized fashion taking full advantage of the GPU power available and allowing the timesteps to proceed faster.
 
-The agent manages to solve the environment in record speed reaching a score greater than 30 in 24 episodes. To be honest, its the fastest I have seen.
+The agent manages to solve the environment in record speed reaching a score greater than 30 in 16 episodes. To be honest, its the fastest I have seen.
